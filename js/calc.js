@@ -179,20 +179,20 @@ export const ACTIVITY_LEVELS = [
   { value: 1.725, name: 'Very active', detail: 'Exercise 6–7 times a week, or a physical job' },
 ];
 
-// 静息消耗（基础代谢），Mifflin-St Jeor 公式。资料不全返回 null
-function restingExact({ sex, age, heightCm }, kg) {
-  if (kg == null || age == null || heightCm == null || (sex !== 'male' && sex !== 'female')) return null;
-  return 10 * kg + 6.25 * heightCm - 5 * age + (sex === 'male' ? 5 : -161);
+// 静息消耗（基础代谢），Mifflin-St Jeor 公式。资料里存出生年，年龄按 year 当年算。资料不全返回 null
+function restingExact({ sex, birthYear, heightCm }, kg, year) {
+  if (kg == null || birthYear == null || heightCm == null || (sex !== 'male' && sex !== 'female')) return null;
+  return 10 * kg + 6.25 * heightCm - 5 * (year - birthYear) + (sex === 'male' ? 5 : -161);
 }
 
-export function restingEnergy(profile, kg) {
-  const exact = restingExact(profile, kg);
+export function restingEnergy(profile, kg, year) {
+  const exact = restingExact(profile, kg, year);
   return exact === null ? null : round(exact, 0);
 }
 
 // 每日总消耗 = 静息消耗 × 活动系数
-export function totalEnergy(profile, kg) {
-  const exact = restingExact(profile, kg);
+export function totalEnergy(profile, kg, year) {
+  const exact = restingExact(profile, kg, year);
   return exact === null || profile.activity == null ? null : round(exact * profile.activity, 0);
 }
 
@@ -200,13 +200,4 @@ export function totalEnergy(profile, kg) {
 export function intakeRangeForLoss(expenditure, kg) {
   const perDay = (pct) => (kg * pct * KCAL_PER_KG) / 7;
   return { low: round(expenditure - perDay(0.01), 0), high: round(expenditure - perDay(0.005), 0) };
-}
-
-const CM_PER_IN = 2.54;
-export const ftInToCm = (ft, inch) => round((ft * 12 + inch) * CM_PER_IN);
-export function cmToFtIn(cm) {
-  const total = cm / CM_PER_IN;
-  const ft = Math.floor(total / 12);
-  const inch = round(total - ft * 12);
-  return inch >= 12 ? { ft: ft + 1, inch: 0 } : { ft, inch };
 }

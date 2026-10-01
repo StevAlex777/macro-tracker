@@ -101,13 +101,28 @@ test('定总热量模式能随备份保存和恢复', () => {
 
 test('旧存档没有个人资料时补上空资料', () => {
   const state = load(fakeStorage({ [STORAGE_KEY]: JSON.stringify({ weights: {} }) }));
-  assert.deepEqual(state.settings.profile, { sex: null, age: null, heightCm: null, activity: null });
+  assert.deepEqual(state.settings.profile, { sex: null, birthYear: null, heightCm: null, activity: null });
 });
 
 test('个人资料能保存，无效的字段被丢弃', () => {
   const backup = defaultState();
-  backup.settings.profile = { sex: 'female', age: 28, heightCm: 165, activity: 1.375 };
+  backup.settings.profile = { sex: 'female', birthYear: 1998, heightCm: 165, activity: 1.375 };
   assert.deepEqual(parseBackup(JSON.stringify(backup)).settings.profile, backup.settings.profile);
-  backup.settings.profile = { sex: 'robot', age: '很老', heightCm: 165, activity: 9 };
-  assert.deepEqual(parseBackup(JSON.stringify(backup)).settings.profile, { sex: null, age: null, heightCm: 165, activity: null });
+  backup.settings.profile = { sex: 'robot', birthYear: '很早', heightCm: 165, activity: 9 };
+  assert.deepEqual(parseBackup(JSON.stringify(backup)).settings.profile, { sex: null, birthYear: null, heightCm: 165, activity: null });
+});
+
+test('不合理的出生年被丢弃', () => {
+  const backup = defaultState();
+  for (const birthYear of [30, 1850, new Date().getFullYear() + 1, 1996.5]) {
+    backup.settings.profile = { sex: 'male', birthYear, heightCm: 175, activity: 1.2 };
+    assert.equal(parseBackup(JSON.stringify(backup)).settings.profile.birthYear, null, String(birthYear));
+  }
+});
+
+test('旧版存的是年龄，读入时换算成出生年', () => {
+  const old = { settings: { profile: { sex: 'male', age: 30, heightCm: 175, activity: 1.55 } }, weights: {} };
+  const { profile } = load(fakeStorage({ [STORAGE_KEY]: JSON.stringify(old) })).settings;
+  assert.equal(profile.birthYear, new Date().getFullYear() - 30);
+  assert.equal('age' in profile, false);
 });

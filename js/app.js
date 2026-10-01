@@ -3,9 +3,9 @@ import {
   fromInputWeight, toDisplayWeight, dateKey, parseDateKey, shiftDate,
   rollingAverage, weeklyRate, averageIntake, estimateExpenditure, EXPENDITURE_NEEDS, kgPerWeekFromDeficit,
   dailyTarget, status,
-  restingEnergy, totalEnergy, intakeRangeForLoss, ftInToCm, cmToFtIn, ACTIVITY_LEVELS,
+  restingEnergy, totalEnergy, intakeRangeForLoss, ACTIVITY_LEVELS,
 } from './calc.js';
-import { load, save, parseBackup } from './store.js';
+import { load, save, parseBackup, isBirthYear } from './store.js';
 import { weightChartSvg } from './chart.js';
 
 const NAMES = { p: 'Protein', c: 'Carbs', f: 'Fat' };
@@ -35,6 +35,7 @@ const num = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const otherUnit = (unit) => (unit === 'lb' ? 'kg' : 'lb');
 const round50 = (n) => Math.round(n / 50) * 50;
+const thisYear = () => Number(today.slice(0, 4));
 
 // 空 → null；不是非负数字 → NaN
 function parseNum(text) {
@@ -314,7 +315,7 @@ function expenditureHtml() {
       </ul>
       ${formula
         ? `<p class="note">Until then, the formula estimates you burn about ${num(formula.kcal)} kcal a day. ${deficitNote(latestTarget().target)}</p>`
-        : '<p class="hint">For a reference right now, fill in sex, age, height and activity level on the Goals tab to get a formula estimate.</p>'}`;
+        : '<p class="hint">For a reference right now, fill in sex, birth year, height and activity level on the Goals tab to get a formula estimate.</p>'}`;
   }
   const [low, high] = [round50(est.low), round50(est.high)];
   const { target } = latestTarget();
@@ -434,7 +435,7 @@ function targetTotal(target) {
 function bestExpenditure() {
   const est = estimateExpenditure(state.weights, state.entries, today);
   if (est.ok) return { kcal: round50(est.kcal), source: 'data' };
-  const formula = totalEnergy(state.settings.profile, weightOn(state.weights, today));
+  const formula = totalEnergy(state.settings.profile, weightOn(state.weights, today), thisYear());
   return formula === null ? null : { kcal: round50(formula), source: 'formula' };
 }
 
@@ -476,10 +477,10 @@ function energyHtml() {
   const { unit, profile } = state.settings;
   const kg = weightOn(state.weights, today);
   if (kg === null) return '<p class="hint">Enter your weight on the Log tab first.</p>';
-  const resting = restingEnergy(profile, kg);
-  if (resting === null) return '<p class="hint">Fill in sex, age and height to see your resting energy.</p>';
+  const resting = restingEnergy(profile, kg, thisYear());
+  if (resting === null) return '<p class="hint">Fill in sex, birth year and height to see your resting energy.</p>';
   const restingHtml = `<p class="stat">Resting energy about <b>${num(round50(resting))}</b> kcal<small>What you burn lying still all day</small></p>`;
-  const total = totalEnergy(profile, kg);
+  const total = totalEnergy(profile, kg, thisYear());
   if (total === null) return `${restingHtml}<p class="hint">Pick an activity level to see your total daily energy.</p>`;
 
   const best = bestExpenditure();
@@ -497,8 +498,7 @@ function energyHtml() {
 }
 
 function profileHtml() {
-  const { unit, profile } = state.settings;
-  const height = profile.heightCm === null ? { ft: '', inch: '' } : cmToFtIn(profile.heightCm);
+  const { profile } = state.settings;
   return `
     <section class="panel profile">
       <fieldset class="radios">
@@ -506,10 +506,8 @@ function profileHtml() {
         ${[['male', 'Male'], ['female', 'Female']].map(([v, label]) => `<label><input type="radio" name="sex" value="${v}" ${profile.sex === v ? 'checked' : ''}> ${label}</label>`).join('')}
       </fieldset>
       <div class="field-row">
-        ${field('profile-age', 'Age', profile.age ?? '')}
-        ${unit === 'lb'
-          ? field('profile-ft', 'Height (ft)', height.ft) + field('profile-in', 'Inches', height.inch)
-          : field('profile-cm', 'Height (cm)', profile.heightCm ?? '')}
+        ${field('profile-year', 'Birth year', profile.birthYear ?? '', 'inputmode="numeric" placeholder="e.g. 1995"')}
+        ${field('profile-cm', 'Height (cm)', profile.heightCm ?? '', 'inputmode="decimal" placeholder="e.g. 175"')}
       </div>
       <fieldset class="radios radios--stack">
         <legend>Activity level</legend>
@@ -929,15 +927,15 @@ $view.addEventListener('input', (event) => {
   } else if (el.id?.startsWith('profile-')) {
     const { profile } = state.settings;
     const n = parseNum(el.value);
-    el.classList.toggle('is-invalid', Number.isNaN(n));
-    if (Number.isNaN(n)) return;
-    if (el.id === 'profile-age') profile.age = n;
-    else if (el.id === 'profile-cm') profile.heightCm = n;
-    else {
-      const ft = parseNum(document.getElementById('profile-ft').value);
-      const inch = parseNum(document.getElementById('profile-in').value) ?? 0;
-      if (Number.isNaN(ft) || Number.isNaN(inch)) return;
-      profile.heightCm = ft === null ? null : ftInToCm(ft, inch);
+    if (el.id === 'profile-year') {
+      // 年份要输完四位才合理，输入过程中先当作没填
+      const valid = isBirthYear(n);
+      el.classList.toggle('is-invalid', n !== null && !valid && el.value.trim().length >= 4);
+      profile.birthYear = valid ? n : null;
+    } else {
+      el.classList.toggle('is-invalid', Number.isNaN(n));
+      if (Number.isNaN(n)) return;
+      profile.heightCm = n;
     }
     persist();
     refreshEnergy();

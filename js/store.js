@@ -12,7 +12,7 @@ export const defaultState = () => ({
     mode: 'multiples',
     kcalTarget: null,
     // 用公式估算消耗所需的资料，没填的项为 null
-    profile: { sex: null, age: null, heightCm: null, activity: null },
+    profile: { sex: null, birthYear: null, heightCm: null, activity: null },
   },
   weights: {},
   entries: {},
@@ -26,11 +26,16 @@ const hasMacros = (v) => isObject(v) && isAmount(v.p) && isAmount(v.c) && isAmou
 const isEntry = (v) => hasMacros(v) && typeof v.name === 'string' && (v.kcal === undefined || isAmount(v.kcal));
 const isFood = (v) => isEntry(v) && (v.basis === '100g' || v.basis === 'serving');
 
+export const isBirthYear = (v, thisYear = new Date().getFullYear()) => Number.isInteger(v) && v >= 1900 && v <= thisYear;
+
 function cleanProfile(raw) {
   const p = isObject(raw) ? raw : {};
+  const thisYear = new Date().getFullYear();
+  // 旧版本存的是年龄，换算成出生年
+  const birthYear = p.birthYear ?? (isAmount(p.age) ? thisYear - Math.round(p.age) : null);
   return {
     sex: p.sex === 'male' || p.sex === 'female' ? p.sex : null,
-    age: isAmount(p.age) ? p.age : null,
+    birthYear: isBirthYear(birthYear, thisYear) ? birthYear : null,
     heightCm: isAmount(p.heightCm) ? p.heightCm : null,
     activity: ACTIVITY_LEVELS.some((a) => a.value === p.activity) ? p.activity : null,
   };
