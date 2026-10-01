@@ -173,10 +173,10 @@ export function status(kind, eaten, target) {
 // ---------- 公式估算消耗（还没有足够记录时用） ----------
 
 export const ACTIVITY_LEVELS = [
-  { value: 1.2, name: '久坐', detail: '坐着工作，基本不运动' },
-  { value: 1.375, name: '轻度', detail: '每周运动 1–3 次' },
-  { value: 1.55, name: '中度', detail: '每周运动 3–5 次' },
-  { value: 1.725, name: '高度', detail: '每周运动 6–7 次，或体力工作' },
+  { value: 1.2, name: 'Sedentary', detail: 'Desk job, little or no exercise' },
+  { value: 1.375, name: 'Light', detail: 'Exercise 1–3 times a week' },
+  { value: 1.55, name: 'Moderate', detail: 'Exercise 3–5 times a week' },
+  { value: 1.725, name: 'Very active', detail: 'Exercise 6–7 times a week, or a physical job' },
 ];
 
 // 静息消耗（基础代谢），Mifflin-St Jeor 公式。资料不全返回 null

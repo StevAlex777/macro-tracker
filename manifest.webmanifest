@@ -1,8 +1,8 @@
 {
-  "name": "营养素记录",
-  "short_name": "营养素",
-  "description": "记录每天的蛋白质、碳水、脂肪和体重，按体重倍数计算还差多少。",
-  "lang": "zh-CN",
+  "name": "Macro Tracker",
+  "short_name": "Macros",
+  "description": "Log daily protein, carbs, fat and body weight, with targets set as multiples of your body weight.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

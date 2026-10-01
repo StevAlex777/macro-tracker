@@ -239,7 +239,7 @@ input.is-invalid { color: var(--over); }
 
 .kcal { padding: 24px 0 18px; }
 .kcal__gap { font-size: 17px; }
-.kcal__gap b { font-size: 60px; line-height: 1; letter-spacing: -.03em; margin: 0 4px; }
+.kcal__gap b { font-size: 60px; line-height: 1; letter-spacing: -.03em; margin: 0 4px 0 0; }
 .kcal__gap b.is-met { font-size: 40px; margin-left: 0; letter-spacing: 0; }
 .kcal__detail { color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
 
@@ -265,6 +265,7 @@ input.is-invalid { color: var(--over); }
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
   font-size: 13px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;

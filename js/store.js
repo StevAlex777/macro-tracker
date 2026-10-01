@@ -82,7 +82,7 @@ export function save(storage, state) {
 
 // 解析导入的备份；格式不对就抛错，调用方不应覆盖现有数据
 export function parseBackup(text) {
-  const invalid = new Error('不是有效的备份文件');
+  const invalid = new Error('Not a valid backup file');
   let raw;
   try {
     raw = JSON.parse(text);

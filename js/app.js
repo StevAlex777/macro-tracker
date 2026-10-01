@@ -8,9 +8,11 @@ import {
 import { load, save, parseBackup } from './store.js';
 import { weightChartSvg } from './chart.js';
 
-const NAMES = { p: '蛋白质', c: '碳水', f: '脂肪' };
+const NAMES = { p: 'Protein', c: 'Carbs', f: 'Fat' };
 const KCAL_PER_G = { p: 4, c: 4, f: 9 };
-const WEEKDAYS = '日一二三四五六';
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const plural = (n, word) => `${num(n)} ${word}${n === 1 ? '' : 's'}`;
 
 const $view = document.getElementById('view');
 const $sheet = document.getElementById('sheet');
@@ -44,15 +46,15 @@ function parseNum(text) {
 
 function dayLabel(key) {
   const d = parseDateKey(key);
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
-const weekday = (key) => `周${WEEKDAYS[parseDateKey(key).getDay()]}`;
+const weekday = (key) => WEEKDAYS[parseDateKey(key).getDay()];
 
 function persist() {
   try {
     save(localStorage, state);
   } catch {
-    showToast('保存失败：浏览器存储空间不可用');
+    showToast('Could not save: browser storage is unavailable');
   }
 }
 
@@ -70,6 +72,9 @@ function showToast(message, action) {
   toastTimer = setTimeout(() => { $toast.classList.remove('is-open'); }, action ? 5000 : 2500);
 }
 
+// 旧版本存下的份量文字是中文（如「2 份」），显示时换成英文，不改已存的数据
+const qtyLabel = (qty) => qty.replace(/^([\d.,]+) \u4efd$/, (_, n) => `${n} ${n === '1' ? 'serving' : 'servings'}`);
+
 const macroLine = (m) => MACROS.map((k) => `<span class="dot dot--${k}">${NAMES[k]} ${num(m[k])}</span>`).join('');
 
 // ---------- 记录页 ----------
@@ -81,37 +86,37 @@ function todayHtml() {
   const isToday = date === today;
   return `
     <header class="datebar">
-      <button type="button" class="iconbtn" data-act="prev-day" aria-label="前一天">‹</button>
+      <button type="button" class="iconbtn" data-act="prev-day" aria-label="Previous day">‹</button>
       <div class="datebar__label">
         <h1>${dayLabel(date)}</h1>
-        <p>${weekday(date)}${isToday ? '，今天' : ''}</p>
+        <p>${weekday(date)}${isToday ? ', today' : ''}</p>
       </div>
-      <button type="button" class="iconbtn" data-act="next-day" aria-label="后一天" ${isToday ? 'disabled' : ''}>›</button>
+      <button type="button" class="iconbtn" data-act="next-day" aria-label="Next day" ${isToday ? 'disabled' : ''}>›</button>
     </header>
-    ${isToday ? '' : '<button type="button" class="linkbtn backtoday" data-act="go-today">回到今天</button>'}
+    ${isToday ? '' : '<button type="button" class="linkbtn backtoday" data-act="go-today">Back to today</button>'}
 
-    <section class="weight" aria-label="体重">
-      <label for="weight">体重</label>
+    <section class="weight" aria-label="Weight">
+      <label for="weight">Weight</label>
       <input id="weight" type="text" inputmode="decimal" autocomplete="off"
         value="${own ? toDisplayWeight(own, unit) : ''}"
         placeholder="${carried ? toDisplayWeight(carried, unit) : '0.0'}">
-      <div class="seg" role="group" aria-label="体重单位">
+      <div class="seg" role="group" aria-label="Weight unit">
         ${['lb', 'kg'].map((u) => `<button type="button" data-act="set-unit" data-unit="${u}" aria-pressed="${u === unit}">${u}</button>`).join('')}
       </div>
       <p class="weight__hint" id="weight-hint">${weightHint()}</p>
     </section>
 
     <div id="summary">${summaryHtml()}</div>
-    <button type="button" class="btn btn--primary fab" data-act="add-entry"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>添加食物</button>`;
+    <button type="button" class="btn btn--primary fab" data-act="add-entry"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add food</button>`;
 }
 
 function weightHint() {
   const { unit } = state.settings;
   const own = state.weights[date];
-  if (own) return `等于 ${toDisplayWeight(own, otherUnit(unit))} ${otherUnit(unit)}`;
+  if (own) return `Equals ${toDisplayWeight(own, otherUnit(unit))} ${otherUnit(unit)}`;
   const carried = weightOn(state.weights, date);
-  if (carried) return `这天没称，沿用上次的 ${toDisplayWeight(carried, unit)} ${unit}`;
-  return '输入体重后才能算出目标';
+  if (carried) return `Not weighed this day. Using your last weight, ${toDisplayWeight(carried, unit)} ${unit}`;
+  return 'Enter your weight to see your targets';
 }
 
 // 蛋白质是下限（吃够就行），碳水、脂肪和总热量是上限
@@ -121,19 +126,20 @@ const KIND = { p: 'floor', c: 'ceiling', f: 'ceiling' };
 function verdict(kind, eaten, target) {
   const st = status(kind, eaten, target);
   const diff = Math.abs(Math.round((eaten - target) * 10) / 10);
-  if (st === 'under') return { label: '还差', value: diff, over: false };
-  if (st === 'over') return { label: '超出', value: diff, over: true };
+  if (st === 'under') return { state: 'under', value: diff, over: false };
+  if (st === 'over') return { state: 'over', value: diff, over: true };
   // 蛋白质明显吃多时说明多了多少，但不算超
   const surplus = status('ceiling', eaten, target) === 'over';
-  return surplus ? { label: '已达标，多', value: diff, over: false } : { label: '已达标', value: null, over: false };
+  return surplus ? { state: 'extra', value: diff, over: false } : { state: 'met', value: null, over: false };
 }
 
 // count 为 true 时给数字打上标记，变化时由 animateSummary 滚动过去
-const verdictHtml = (v, unit, count = false) => (
-  v.value === null
-    ? `<b class="is-met">${v.label}</b>`
-    : `${v.label} <b ${count ? `data-count="${Math.round(v.value)}"` : ''}>${num(v.value)}</b> ${unit}`
-);
+function verdictHtml(v, unit, count = false) {
+  if (v.state === 'met') return '<b class="is-met">On target</b>';
+  const number = `<b ${count ? `data-count="${Math.round(v.value)}"` : ''}>${num(v.value)}</b> ${unit}`;
+  if (v.state === 'extra') return `On target, ${number} extra`;
+  return `${number} ${v.state === 'over' ? 'over' : 'left'}`;
+}
 
 function kcalBarHtml(eaten, target) {
   const max = Math.max(target * 1.12, eaten, 1);
@@ -208,24 +214,24 @@ function macroRowHtml(k, eaten, target, mult, kg) {
       </div>
       ${rulerHtml(mult[k], target[k] / kg, k)}
       <div class="macro__foot">
-        <span>已吃 ${num(eaten[k])} g，体重的 ${mult[k]} 倍</span>
-        <span>${KIND[k] === 'floor' ? '至少' : '目标'} ${num(target[k])} g</span>
+        <span>Eaten ${num(eaten[k])} g, ${mult[k]}× body weight</span>
+        <span>${KIND[k] === 'floor' ? 'At least' : 'Target'} ${num(target[k])} g</span>
       </div>
     </article>`;
 }
 
 function entriesHtml(entries) {
   if (entries.length === 0) {
-    return '<p class="empty">这天还没有记录。吃了什么，点下面的「添加食物」记下来。</p>';
+    return '<p class="empty">Nothing logged for this day yet. Tap “Add food” below to log what you ate.</p>';
   }
   return `<ul class="entries">${entries.map((e) => `
     <li class="${e.id === justAdded ? 'is-new' : ''}">
       <button type="button" class="entry" data-act="edit-entry" data-id="${esc(e.id)}">
-        <span class="entry__name">${esc(e.name)}${e.qty ? `<small>${esc(e.qty)}</small>` : ''}</span>
+        <span class="entry__name">${esc(e.name)}${e.qty ? `<small>${esc(qtyLabel(e.qty))}</small>` : ''}</span>
         <span class="entry__kcal">${num(kcalOf(e))} kcal</span>
         <span class="entry__macros">${macroLine(e)}</span>
       </button>
-      <button type="button" class="iconbtn iconbtn--quiet" data-act="delete-entry" data-id="${esc(e.id)}" aria-label="删除 ${esc(e.name)}">×</button>
+      <button type="button" class="iconbtn iconbtn--quiet" data-act="delete-entry" data-id="${esc(e.id)}" aria-label="Delete ${esc(e.name)}">×</button>
     </li>`).join('')}</ul>`;
 }
 
@@ -238,11 +244,11 @@ function summaryHtml() {
   if (kg === null) {
     return `
       <section class="kcal">
-        <p class="kcal__gap">已吃 <b>${num(eatenKcal)}</b> kcal</p>
+        <p class="kcal__gap"><b>${num(eatenKcal)}</b> kcal eaten</p>
         <p class="kcal__detail">${macroLine(eaten)}</p>
       </section>
-      <p class="notice">先在上面输入体重，这里就会按「体重的几倍」算出每种营养素还差多少。</p>
-      <section class="log"><h2>吃了什么</h2>${entriesHtml(entries)}</section>`;
+      <p class="notice">Enter your weight above and this will show how much of each macro you have left, based on multiples of your body weight.</p>
+      <section class="log"><h2>Food log</h2>${entriesHtml(entries)}</section>`;
   }
 
   const target = dailyTarget(state.settings, kg);
@@ -252,10 +258,10 @@ function summaryHtml() {
     <section class="kcal">
       <p class="kcal__gap ${v.over ? 'is-over' : ''}">${verdictHtml(v, 'kcal', true)}</p>
       ${kcalBarHtml(eatenKcal, target.kcal)}
-      <p class="kcal__detail">已吃 ${num(eatenKcal)}，目标 ${num(target.kcal)} kcal</p>
+      <p class="kcal__detail">Eaten ${num(eatenKcal)} of ${num(target.kcal)} kcal</p>
     </section>
     <section class="macros">${MACROS.map((k) => macroRowHtml(k, eaten, target, mult, kg)).join('')}</section>
-    <section class="log"><h2>吃了什么</h2>${entriesHtml(entries)}</section>`;
+    <section class="log"><h2>Food log</h2>${entriesHtml(entries)}</section>`;
 }
 
 const refreshSummary = () => {
@@ -271,27 +277,27 @@ function rateHtml() {
   const { unit } = state.settings;
   const rate = weeklyRate(state.weights, today);
   if (!rate.ok) {
-    return `<p class="hint">最近 21 天称了 ${rate.weighIns} 次、前后跨 ${rate.spanDays} 天。至少称 4 次并跨 7 天，才能算出每周的变化速度。</p>`;
+    return `<p class="hint">${plural(rate.weighIns, 'weigh-in')} across ${plural(rate.spanDays, 'day')} in the last 21 days. It takes at least 4 weigh-ins across 7 days to work out your weekly rate.</p>`;
   }
   const loss = -rate.pctPerWeek;
   let note;
-  if (loss > 1) note = '比常见建议的每周 0.5–1% 快。降得太快更容易掉肌肉，可以把目标热量调高一些。';
-  else if (loss >= 0.5) note = '在常见建议的每周 0.5–1% 范围内。';
-  else if (loss >= 0.25) note = '在下降，但比常见建议的每周 0.5–1% 慢。';
-  else if (loss > -0.25) note = '基本持平，说明这段时间吃的量大约等于消耗。';
-  else note = '体重在上升，说明这段时间吃的量高于消耗。';
+  if (loss > 1) note = 'Faster than the commonly advised 0.5–1% per week. Losing this fast makes muscle loss more likely; consider raising your calorie target a little.';
+  else if (loss >= 0.5) note = 'Within the commonly advised 0.5–1% per week.';
+  else if (loss >= 0.25) note = 'Going down, but slower than the commonly advised 0.5–1% per week.';
+  else if (loss > -0.25) note = 'Roughly flat, which means you have been eating about what you burn.';
+  else note = 'Going up, which means you have been eating more than you burn.';
   return `
-    <p class="stat">每周 <b>${signed(toDisplayWeight(rate.kgPerWeek, unit))}</b> ${unit}<small>体重的 ${num(Math.abs(rate.pctPerWeek))}%</small></p>
-    <p class="hint">按最近 21 天的 ${rate.weighIns} 次称重算出。${note}</p>`;
+    <p class="stat"><b>${signed(toDisplayWeight(rate.kgPerWeek, unit))}</b> ${unit} per week<small>${num(Math.abs(rate.pctPerWeek))}% of body weight</small></p>
+    <p class="hint">Based on ${plural(rate.weighIns, 'weigh-in')} in the last 21 days. ${note}</p>`;
 }
 
 function intakeHtml() {
   const intake = averageIntake(state.entries, today);
-  if (!intake) return '<p class="hint">过去 7 天还没有饮食记录。</p>';
+  if (!intake) return '<p class="hint">No food logged in the past 7 days.</p>';
   return `
-    <p class="stat">每天 <b>${num(intake.kcal)}</b> kcal<small>${intake.days} 天有记录</small></p>
+    <p class="stat"><b>${num(intake.kcal)}</b> kcal per day<small>${plural(intake.days, 'day')} logged</small></p>
     <p class="entry__macros">${macroLine(intake)}</p>
-    <p class="hint">单独某一天的多少不重要，看一周的平均更准。不含今天。</p>`;
+    <p class="hint">A single day matters little; the weekly average tells you more. Today is not included.</p>`;
 }
 
 function expenditureHtml() {
@@ -300,22 +306,22 @@ function expenditureHtml() {
     const need = EXPENDITURE_NEEDS;
     const formula = bestExpenditure();
     return `
-      <p class="hint">记录够多之后，这里会用你吃的量和体重的变化，反推你每天实际消耗多少。最近 28 天的进度：</p>
+      <p class="hint">Once you have logged enough, this works out how much you actually burn each day from what you eat and how your weight changes. Progress over the last 28 days:</p>
       <ul class="needs">
-        <li>称重 <b>${est.weighIns}</b> / ${need.weighIns} 次</li>
-        <li>称重前后跨 <b>${est.spanDays}</b> / ${need.spanDays} 天</li>
-        <li>饮食记录 <b>${est.loggedDays}</b> / ${need.loggedDays} 天</li>
+        <li>Weigh-ins: <b>${est.weighIns}</b> / ${need.weighIns}</li>
+        <li>Days from first to last weigh-in: <b>${est.spanDays}</b> / ${need.spanDays}</li>
+        <li>Days with food logged: <b>${est.loggedDays}</b> / ${need.loggedDays}</li>
       </ul>
       ${formula
-        ? `<p class="note">在那之前，按公式估算每天消耗约 ${num(formula.kcal)} kcal。${deficitNote(latestTarget().target)}</p>`
-        : '<p class="hint">想现在就有个参考，到「目标」页填性别、年龄、身高和活动量，可以先按公式估算。</p>'}`;
+        ? `<p class="note">Until then, the formula estimates you burn about ${num(formula.kcal)} kcal a day. ${deficitNote(latestTarget().target)}</p>`
+        : '<p class="hint">For a reference right now, fill in sex, age, height and activity level on the Goals tab to get a formula estimate.</p>'}`;
   }
   const [low, high] = [round50(est.low), round50(est.high)];
   const { target } = latestTarget();
   return `
-    <p class="stat">约 <b>${num(round50(est.kcal))}</b> kcal${low === high ? '' : `<small>可能在 ${num(low)}–${num(high)} 之间</small>`}</p>
+    <p class="stat">About <b>${num(round50(est.kcal))}</b> kcal${low === high ? '' : `<small>likely between ${num(low)} and ${num(high)}</small>`}</p>
     <p class="note">${deficitNote(target)}</p>
-    <p class="hint">用最近 28 天里 ${est.loggedDays} 天的饮食记录（平均 ${num(est.avgIntake)} kcal）和 ${est.weighIns} 次称重估算。有的天没记全会让结果偏低；刚开始减脂的头一两周掉的多是水分，会让结果偏高。</p>`;
+    <p class="hint">Estimated from ${plural(est.loggedDays, 'day')} of food logs (averaging ${num(est.avgIntake)} kcal) and ${plural(est.weighIns, 'weigh-in')} in the last 28 days. Days that were only partly logged push this too low. In the first week or two of a cut most of the loss is water, which pushes it too high.</p>`;
 }
 
 function trendsHtml() {
@@ -331,7 +337,7 @@ function trendsHtml() {
   let change = '';
   if (avg.length >= 2) {
     const diff = Math.round((avg[avg.length - 1].value - avg[0].value) * 10) / 10;
-    change = `<p class="trend__change">7 天平均从${dayLabel(avg[0].date)}至今 <b>${signed(diff)}</b> ${unit}</p>`;
+    change = `<p class="trend__change">7-day average since ${dayLabel(avg[0].date)}: <b>${signed(diff)}</b> ${unit}</p>`;
   }
 
   const days = [...new Set([...Object.keys(state.weights), ...Object.keys(state.entries).filter((k) => state.entries[k].length)])]
@@ -345,49 +351,49 @@ function trendsHtml() {
     let versus = '';
     if (kg !== null && kcal > 0) {
       const v = verdict('ceiling', kcal, dailyTarget(state.settings, kg).kcal);
-      versus = `<small class="${v.over ? 'is-over' : ''}">${v.value === null ? '达标' : `${v.over ? '超' : '差'} ${num(v.value)}`}</small>`;
+      versus = `<small class="${v.over ? 'is-over' : ''}">${v.state === 'met' ? 'on target' : `${num(v.value)} ${v.over ? 'over' : 'under'}`}</small>`;
     }
     return `
       <li><button type="button" class="day" data-act="open-day" data-date="${k}">
         <span class="day__date">${dayLabel(k)}<small>${weekday(k)}</small></span>
-        <span class="day__weight">${own ? `${toDisplayWeight(own, unit)} ${unit}` : '没称'}</span>
-        <span class="day__kcal">${kcal ? `${num(kcal)} kcal` : '没记'}${versus}</span>
+        <span class="day__weight">${own ? `${toDisplayWeight(own, unit)} ${unit}` : 'no weigh-in'}</span>
+        <span class="day__kcal">${kcal ? `${num(kcal)} kcal` : 'no food logged'}${versus}</span>
         <span class="day__macros">${kcal ? macroLine(eaten) : ''}</span>
       </button></li>`;
   }).join('');
 
   return `
     <header class="page__head">
-      <h1>趋势</h1>
-      <div class="seg" role="group" aria-label="时间范围">
-        ${[[30, '30 天'], [90, '90 天'], [0, '全部']].map(([v, label]) => `<button type="button" data-act="set-range" data-range="${v}" aria-pressed="${v === trendRange}">${label}</button>`).join('')}
+      <h1>Trends</h1>
+      <div class="seg" role="group" aria-label="Time range">
+        ${[[30, '30 days'], [90, '90 days'], [0, 'All']].map(([v, label]) => `<button type="button" data-act="set-range" data-range="${v}" aria-pressed="${v === trendRange}">${label}</button>`).join('')}
       </div>
     </header>
     <section class="panel trend">
-      <h2>体重（${unit}）</h2>
+      <h2>Weight (${unit})</h2>
       ${raw.length ? `
         ${weightChartSvg(raw, avg, unit)}
-        <p class="legend"><span class="legend__dot"></span>每天称的<span class="legend__line"></span>7 天平均</p>
+        <p class="legend"><span class="legend__dot"></span>Daily weigh-in<span class="legend__line"></span>7-day average</p>
         ${change}
-        ${rateHtml()}` : '<p class="empty">这段时间还没有体重记录。在「记录」页输入体重，这里会画出变化曲线。</p>'}
+        ${rateHtml()}` : '<p class="empty">No weight logged in this period. Enter your weight on the Log tab and the trend shows up here.</p>'}
     </section>
     <section class="panel trend">
-      <h2>近 7 天平均摄入</h2>
+      <h2>Average intake, past 7 days</h2>
       ${intakeHtml()}
     </section>
     <section class="panel trend">
-      <h2>每天实际消耗（估算）</h2>
+      <h2>Energy burned per day (estimate)</h2>
       ${expenditureHtml()}
     </section>
     <section class="log">
-      <h2>每天</h2>
-      ${rows ? `<ul class="days">${rows}</ul>` : '<p class="empty">这段时间还没有记录。</p>'}
+      <h2>By day</h2>
+      ${rows ? `<ul class="days">${rows}</ul>` : '<p class="empty">Nothing logged in this period.</p>'}
     </section>`;
 }
 
 // ---------- 食物库页 ----------
 
-const basisLabel = (basis) => (basis === '100g' ? '每 100 g' : '每份');
+const basisLabel = (basis) => (basis === '100g' ? 'per 100 g' : 'per serving');
 
 function foodsHtml() {
   const list = state.foods.map((f) => `
@@ -397,10 +403,10 @@ function foodsHtml() {
       <span class="entry__macros">${macroLine(f)}</span>
     </button></li>`).join('');
   return `
-    <header class="page__head"><h1>食物库</h1></header>
-    <p class="lede">把常吃的食物存在这里，记录时选中它、填重量，营养素会自动算好。</p>
-    ${list ? `<ul class="entries">${list}</ul>` : '<p class="empty">食物库还是空的。点下面的「新增食物」，照着包装上的营养成分表填一次就行。</p>'}
-    <button type="button" class="btn btn--primary fab" data-act="new-food"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新增食物</button>`;
+    <header class="page__head"><h1>My foods</h1></header>
+    <p class="lede">Save the foods you eat often. When logging, pick one and enter the amount, and the macros are worked out for you.</p>
+    ${list ? `<ul class="entries">${list}</ul>` : '<p class="empty">No saved foods yet. Tap “New food” below and copy the numbers from the nutrition label once.</p>'}
+    <button type="button" class="btn btn--primary fab" data-act="new-food"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New food</button>`;
 }
 
 // ---------- 目标页 ----------
@@ -412,16 +418,16 @@ const latestTarget = () => {
 };
 
 function targetDerived(k, target, kg) {
-  if (target === null) return '输入体重后显示克数';
+  if (target === null) return 'Enter your weight to see grams';
   if (k === 'c' && kcalMode()) {
-    return `剩下的热量都给碳水：每天 ${num(target.c)} g，体重的 ${Math.round((target.c / kg) * 100) / 100} 倍`;
+    return `Carbs get the remaining calories: ${num(target.c)} g a day, ${Math.round((target.c / kg) * 100) / 100}× body weight`;
   }
-  return `每天 ${num(target[k])} g，${num(Math.round(target[k] * KCAL_PER_G[k]))} kcal`;
+  return `${num(target[k])} g a day, ${num(Math.round(target[k] * KCAL_PER_G[k]))} kcal`;
 }
 
 function targetTotal(target) {
   if (target === null || state.settings.mode === 'kcal') return '';
-  return `合计 <b>${num(target.kcal)}</b> kcal`;
+  return `Total <b>${num(target.kcal)}</b> kcal`;
 }
 
 // 当前最可信的每日消耗：记录够了用反推的，否则用公式；都没有则为 null
@@ -438,20 +444,20 @@ function deficitNote(target) {
   if (!best || target === null) return '';
   const { unit } = state.settings;
   const deficit = best.kcal - target.kcal;
-  if (deficit <= 0) return `现在的目标 ${num(target.kcal)} kcal 不低于估算的消耗，照这样吃体重不会降。`;
-  return `现在的目标 ${num(target.kcal)} kcal 相当于每天缺口约 ${num(round50(deficit))} kcal，照这样每周大约降 ${toDisplayWeight(kgPerWeekFromDeficit(deficit), unit)} ${unit}。`;
+  if (deficit <= 0) return `Your target of ${num(target.kcal)} kcal is not below your estimated burn, so your weight will not go down at this intake.`;
+  return `Your target of ${num(target.kcal)} kcal is a deficit of about ${num(round50(deficit))} kcal a day, or roughly ${toDisplayWeight(kgPerWeekFromDeficit(deficit), unit)} ${unit} lost per week.`;
 }
 
 function targetNotes(target) {
   const { mode, kcalTarget, targets } = state.settings;
   const notes = [];
-  if (mode === 'kcal' && kcalTarget == null) notes.push('填入每日总热量后，碳水会自动取剩下的部分。在那之前仍按三个倍数计算。');
-  if (target?.overBudget) notes.push('<span class="is-over">蛋白质和脂肪加起来已经超过总热量，碳水被记为 0。调高总热量，或调低蛋白质、脂肪的倍数。</span>');
-  if (targets.p < 1.6) notes.push('蛋白质低于减脂期常用的 1.6–2.4 g/kg，更容易掉肌肉。');
-  if (targets.f < 0.5) notes.push('脂肪低于常见建议的下限 0.5 g/kg。');
+  if (mode === 'kcal' && kcalTarget == null) notes.push('Enter a daily calorie total and carbs will take whatever is left. Until then the three multipliers still apply.');
+  if (target?.overBudget) notes.push('<span class="is-over">Protein and fat already add up to more than your calorie total, so carbs are set to 0. Raise the total, or lower the protein or fat multiplier.</span>');
+  if (targets.p < 1.6) notes.push('Protein is below the 1.6–2.4 g/kg commonly used when cutting, which makes muscle loss more likely.');
+  if (targets.f < 0.5) notes.push('Fat is below the commonly advised minimum of 0.5 g/kg.');
   const best = bestExpenditure();
   if (best && target) {
-    notes.push(`${best.source === 'data' ? '按你最近的记录反推' : '按公式估算'}，每天消耗约 ${num(best.kcal)} kcal。${deficitNote(target)}`);
+    notes.push(`${best.source === 'data' ? 'Based on your recent logs' : 'By formula'}, you burn about ${num(best.kcal)} kcal a day. ${deficitNote(target)}`);
   }
   return notes.map((n) => `<p class="hint">${n}</p>`).join('');
 }
@@ -459,9 +465,9 @@ function targetNotes(target) {
 function stepperHtml(id, value, act, attrs, step, name, unit) {
   return `
     <div class="stepper">
-      <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="-${step}" aria-label="${name}减少 ${step}">−</button>
+      <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="-${step}" aria-label="Decrease ${name} by ${step}">−</button>
       <input id="${id}" ${attrs} type="text" inputmode="decimal" autocomplete="off" value="${value ?? ''}">
-      <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="${step}" aria-label="${name}增加 ${step}">+</button>
+      <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="${step}" aria-label="Increase ${name} by ${step}">+</button>
       <span>${unit}</span>
     </div>`;
 }
@@ -469,12 +475,12 @@ function stepperHtml(id, value, act, attrs, step, name, unit) {
 function energyHtml() {
   const { unit, profile } = state.settings;
   const kg = weightOn(state.weights, today);
-  if (kg === null) return '<p class="hint">先在「记录」页输入体重，这里才能算。</p>';
+  if (kg === null) return '<p class="hint">Enter your weight on the Log tab first.</p>';
   const resting = restingEnergy(profile, kg);
-  if (resting === null) return '<p class="hint">填好性别、年龄和身高，就能算出静息消耗。</p>';
-  const restingHtml = `<p class="stat">静息消耗约 <b>${num(round50(resting))}</b> kcal<small>整天躺着也会消耗的量</small></p>`;
+  if (resting === null) return '<p class="hint">Fill in sex, age and height to see your resting energy.</p>';
+  const restingHtml = `<p class="stat">Resting energy about <b>${num(round50(resting))}</b> kcal<small>What you burn lying still all day</small></p>`;
   const total = totalEnergy(profile, kg);
-  if (total === null) return `${restingHtml}<p class="hint">再选一个活动量，就能算出每日总消耗。</p>`;
+  if (total === null) return `${restingHtml}<p class="hint">Pick an activity level to see your total daily energy.</p>`;
 
   const best = bestExpenditure();
   const range = intakeRangeForLoss(best.kcal, kg);
@@ -484,10 +490,10 @@ function energyHtml() {
   const high = Math.max(round50(range.high), low);
   return `
     ${restingHtml}
-    <p class="stat">每日总消耗约 <b>${num(round50(total))}</b> kcal<small>静息消耗 × 活动量</small></p>
-    ${best.source === 'data' ? `<p class="note">按你最近的饮食和体重记录反推，实际消耗约 ${num(best.kcal)} kcal。两个数不一样时以这个为准，下面的建议按它算。</p>` : ''}
-    <p class="note">想每周降 ${toDisplayWeight(kg * 0.005, unit)}–${toDisplayWeight(kg * 0.01, unit)} ${unit}（体重的 0.5–1%），每天吃大约 ${low === high ? num(low) : `${num(low)}–${num(high)}`} kcal。${round50(range.low) < floor ? '下限没有低于静息消耗，不建议长期吃得比它还少。' : ''}</p>
-    <p class="hint">公式是 Mifflin-St Jeor，对多数人的误差在 ±10% 左右，活动量是最估不准的一项。连续记录两周后，「趋势」页会用你自己的数据反推，比公式准。</p>`;
+    <p class="stat">Total daily energy about <b>${num(round50(total))}</b> kcal<small>Resting energy × activity level</small></p>
+    ${best.source === 'data' ? `<p class="note">Working back from your recent food and weight logs, you actually burn about ${num(best.kcal)} kcal. Where the two differ, trust this one; the suggestion below uses it.</p>` : ''}
+    <p class="note">To lose ${toDisplayWeight(kg * 0.005, unit)}–${toDisplayWeight(kg * 0.01, unit)} ${unit} per week (0.5–1% of body weight), eat about ${low === high ? num(low) : `${num(low)}–${num(high)}`} kcal a day.${round50(range.low) < floor ? ' The lower end is capped at your resting energy; eating below that for long is not advised.' : ''}</p>
+    <p class="hint">The formula is Mifflin-St Jeor. It is within about ±10% for most people, and activity level is the hardest part to judge. After two weeks of logging, the Trends tab works this out from your own data, which is more accurate.</p>`;
 }
 
 function profileHtml() {
@@ -496,17 +502,17 @@ function profileHtml() {
   return `
     <section class="panel profile">
       <fieldset class="radios">
-        <legend>性别（公式需要）</legend>
-        ${[['male', '男'], ['female', '女']].map(([v, label]) => `<label><input type="radio" name="sex" value="${v}" ${profile.sex === v ? 'checked' : ''}> ${label}</label>`).join('')}
+        <legend>Sex (the formula needs it)</legend>
+        ${[['male', 'Male'], ['female', 'Female']].map(([v, label]) => `<label><input type="radio" name="sex" value="${v}" ${profile.sex === v ? 'checked' : ''}> ${label}</label>`).join('')}
       </fieldset>
       <div class="field-row">
-        ${field('profile-age', '年龄', profile.age ?? '')}
+        ${field('profile-age', 'Age', profile.age ?? '')}
         ${unit === 'lb'
-          ? field('profile-ft', '身高（英尺）', height.ft) + field('profile-in', '英寸', height.inch)
-          : field('profile-cm', '身高（厘米）', profile.heightCm ?? '')}
+          ? field('profile-ft', 'Height (ft)', height.ft) + field('profile-in', 'Inches', height.inch)
+          : field('profile-cm', 'Height (cm)', profile.heightCm ?? '')}
       </div>
       <fieldset class="radios radios--stack">
-        <legend>活动量</legend>
+        <legend>Activity level</legend>
         ${ACTIVITY_LEVELS.map((a) => `<label><input type="radio" name="activity" value="${a.value}" ${profile.activity === a.value ? 'checked' : ''}> <span>${a.name}<small>${a.detail}</small></span></label>`).join('')}
       </fieldset>
       <div id="energy-result">${energyHtml()}</div>
@@ -516,10 +522,10 @@ function profileHtml() {
 function settingsHtml() {
   const { unit, targets, mode, kcalTarget } = state.settings;
   const { kg, target } = latestTarget();
-  const basis = kg === null ? '' : `按最近的体重 ${toDisplayWeight(kg, unit)} ${unit}${unit === 'lb' ? `（${toDisplayWeight(kg, 'kg')} kg）` : ''}计算。`;
+  const basis = kg === null ? '' : ` Based on your latest weight, ${toDisplayWeight(kg, unit)} ${unit}${unit === 'lb' ? ` (${toDisplayWeight(kg, 'kg')} kg)` : ''}.`;
   const intro = mode === 'kcal'
-    ? '先定每天的总热量，再定蛋白质和脂肪各吃体重的几倍，剩下的热量都给碳水。'
-    : '每公斤体重每天吃多少克，总热量是三者相加的结果。';
+    ? 'Set your daily calories first, then protein and fat as multiples of body weight. Carbs get whatever calories are left.'
+    : 'Grams per kilogram of body weight per day. Total calories are the three added up.';
   const macroRow = (k) => `
     <div class="target macro--${k}">
       <label ${mode === 'kcal' && k === 'c' ? '' : `for="target-${k}"`}>${NAMES[k]}</label>
@@ -527,20 +533,20 @@ function settingsHtml() {
       <p data-derived="${k}">${targetDerived(k, target, kg)}</p>
     </div>`;
   return `
-    <header class="page__head"><h1>每日目标</h1></header>
-    <h2 class="section-title">你每天消耗多少</h2>
+    <header class="page__head"><h1>Daily goals</h1></header>
+    <h2 class="section-title">How much you burn</h2>
     ${profileHtml()}
-    <h2 class="section-title">每天吃多少</h2>
-    <div class="seg seg--wide" role="group" aria-label="目标的设法">
-      <button type="button" data-act="set-mode" data-mode="multiples" aria-pressed="${mode !== 'kcal'}">三个倍数</button>
-      <button type="button" data-act="set-mode" data-mode="kcal" aria-pressed="${mode === 'kcal'}">定总热量</button>
+    <h2 class="section-title">How much to eat</h2>
+    <div class="seg seg--wide" role="group" aria-label="How goals are set">
+      <button type="button" data-act="set-mode" data-mode="multiples" aria-pressed="${mode !== 'kcal'}">Three multipliers</button>
+      <button type="button" data-act="set-mode" data-mode="kcal" aria-pressed="${mode === 'kcal'}">Fixed calories</button>
     </div>
     <p class="lede lede--after-seg">${intro}${basis}</p>
     <section class="panel targets">
       ${mode === 'kcal' ? `
         <div class="target target--kcal">
-          <label for="target-kcal">每日总热量</label>
-          ${stepperHtml('target-kcal', kcalTarget, 'step-kcal', '', 50, '每日总热量', 'kcal')}
+          <label for="target-kcal">Daily calories</label>
+          ${stepperHtml('target-kcal', kcalTarget, 'step-kcal', '', 50, 'daily calories', 'kcal')}
         </div>` : ''}
       ${(mode === 'kcal' ? ['p', 'f', 'c'] : MACROS).map(macroRow).join('')}
       <p class="targets__total" id="target-total">${targetTotal(target)}</p>
@@ -548,11 +554,11 @@ function settingsHtml() {
     <div class="notes" id="target-notes">${targetNotes(target)}</div>
 
     <section class="backup">
-      <h2>备份</h2>
-      <p class="lede">记录只存在这台手机的浏览器里，不会上传。清除浏览器数据或换手机之前，先导出一份。</p>
+      <h2>Backup</h2>
+      <p class="lede">Your data lives only in this device’s browser and is never uploaded. Export a copy before clearing browser data or switching phones.</p>
       <div class="backup__actions">
-        <button type="button" class="btn" data-act="export">导出备份</button>
-        <button type="button" class="btn" data-act="import">导入备份</button>
+        <button type="button" class="btn" data-act="export">Export backup</button>
+        <button type="button" class="btn" data-act="import">Import backup</button>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
       </div>
     </section>`;
@@ -598,8 +604,8 @@ const macroFields = (m = {}) => `
   <div class="field-row">
     ${MACROS.map((k) => field(`f-${k}`, `${NAMES[k]} (g)`, m[k] ?? '')).join('')}
   </div>
-  ${field('f-kcal', '卡路里（选填）', m.kcal ?? '')}
-  <p class="hint hint--field">不填就按蛋白质 4、碳水 4、脂肪 9 自动算。含膳食纤维或糖醇的食物会算高，照包装上的数字填更准。</p>`;
+  ${field('f-kcal', 'Calories (optional)', m.kcal ?? '')}
+  <p class="hint hint--field">Leave blank to calculate at 4 kcal/g for protein and carbs and 9 for fat. That overcounts foods with fiber or sugar alcohols, so the number on the label is more accurate.</p>`;
 
 function entrySheetHtml() {
   const { tab, foodId, editId } = sheetState;
@@ -607,28 +613,28 @@ function entrySheetHtml() {
   const food = state.foods.find((f) => f.id === foodId);
 
   const tabs = editing ? '' : `
-    <div class="seg seg--wide" role="group" aria-label="录入方式">
-      <button type="button" data-act="sheet-tab" data-tab="foods" aria-pressed="${tab === 'foods'}">从食物库选</button>
-      <button type="button" data-act="sheet-tab" data-tab="manual" aria-pressed="${tab === 'manual'}">手动输入</button>
+    <div class="seg seg--wide" role="group" aria-label="How to enter">
+      <button type="button" data-act="sheet-tab" data-tab="foods" aria-pressed="${tab === 'foods'}">From my foods</button>
+      <button type="button" data-act="sheet-tab" data-tab="manual" aria-pressed="${tab === 'manual'}">Enter manually</button>
     </div>`;
 
   let body;
   if (tab === 'foods') {
     body = state.foods.length === 0
-      ? '<p class="empty">食物库还是空的。切到「手动输入」并勾选「存入食物库」，下次就能在这里直接选。</p>'
+      ? '<p class="empty">No saved foods yet. Switch to “Enter manually” and tick “Save to my foods” to pick it here next time.</p>'
       : `
         <div class="foodpick">
           ${state.foods.map((f) => `<button type="button" data-act="pick-food" data-id="${esc(f.id)}" aria-pressed="${f.id === foodId}">${esc(f.name)}</button>`).join('')}
         </div>
         ${food ? `
-          ${field('f-amount', food.basis === '100g' ? '吃了多少克' : '吃了几份', food.basis === '100g' ? '100' : '1')}
-          <p class="preview" id="preview"></p>` : '<p class="hint">选一个食物，再填吃了多少。</p>'}`;
+          ${field('f-amount', food.basis === '100g' ? 'Grams eaten' : 'Servings eaten', food.basis === '100g' ? '100' : '1')}
+          <p class="preview" id="preview"></p>` : '<p class="hint">Pick a food, then enter how much you ate.</p>'}`;
   } else {
     body = `
-      ${field('f-name', '名称', editing?.name ?? '', 'placeholder="比如：鸡胸肉"')}
+      ${field('f-name', 'Name', editing?.name ?? '', 'placeholder="e.g. Chicken breast"')}
       ${macroFields(editing ?? {})}
       <p class="preview" id="preview"></p>
-      ${editing ? '' : '<label class="check"><input type="checkbox" id="f-save"> 存入食物库，下次直接选</label>'}`;
+      ${editing ? '' : '<label class="check"><input type="checkbox" id="f-save"> Save to my foods for next time</label>'}`;
   }
 
   const canSubmit = tab === 'manual' || food;
@@ -636,13 +642,13 @@ function entrySheetHtml() {
     <form id="sheet-form" novalidate>
       ${GRAB}
       <header class="sheet__head">
-        <h2>${editing ? '修改记录' : '添加食物'}</h2>
-        <button type="button" class="iconbtn iconbtn--quiet" data-act="close-sheet" aria-label="关闭">×</button>
+        <h2>${editing ? 'Edit entry' : 'Add food'}</h2>
+        <button type="button" class="iconbtn iconbtn--quiet" data-act="close-sheet" aria-label="Close">×</button>
       </header>
       ${tabs}
       ${body}
       <p class="form-error" id="form-error" role="alert" hidden></p>
-      ${canSubmit ? `<button type="submit" class="btn btn--primary">${editing ? '保存修改' : `添加到${dayLabel(date)}`}</button>` : ''}
+      ${canSubmit ? `<button type="submit" class="btn btn--primary">${editing ? 'Save changes' : `Add to ${dayLabel(date)}`}</button>` : ''}
     </form>`;
 }
 
@@ -653,20 +659,20 @@ function foodSheetHtml() {
     <form id="sheet-form" novalidate>
       ${GRAB}
       <header class="sheet__head">
-        <h2>${editing ? '修改食物' : '新增食物'}</h2>
-        <button type="button" class="iconbtn iconbtn--quiet" data-act="close-sheet" aria-label="关闭">×</button>
+        <h2>${editing ? 'Edit food' : 'New food'}</h2>
+        <button type="button" class="iconbtn iconbtn--quiet" data-act="close-sheet" aria-label="Close">×</button>
       </header>
-      ${field('f-name', '名称', editing?.name ?? '', 'placeholder="比如：燕麦"')}
+      ${field('f-name', 'Name', editing?.name ?? '', 'placeholder="e.g. Oats"')}
       <fieldset class="radios">
-        <legend>下面的营养素是按什么量填的</legend>
-        <label><input type="radio" name="basis" value="100g" ${basis === '100g' ? 'checked' : ''}> 每 100 g</label>
-        <label><input type="radio" name="basis" value="serving" ${basis === 'serving' ? 'checked' : ''}> 每份</label>
+        <legend>The macros below are</legend>
+        <label><input type="radio" name="basis" value="100g" ${basis === '100g' ? 'checked' : ''}> per 100 g</label>
+        <label><input type="radio" name="basis" value="serving" ${basis === 'serving' ? 'checked' : ''}> per serving</label>
       </fieldset>
       ${macroFields(editing ?? {})}
       <p class="preview" id="preview"></p>
       <p class="form-error" id="form-error" role="alert" hidden></p>
-      <button type="submit" class="btn btn--primary">${editing ? '保存修改' : '存入食物库'}</button>
-      ${editing ? '<button type="button" class="btn btn--danger" data-act="delete-food">从食物库删除</button>' : ''}
+      <button type="submit" class="btn btn--primary">${editing ? 'Save changes' : 'Save to my foods'}</button>
+      ${editing ? '<button type="button" class="btn btn--danger" data-act="delete-food">Delete from my foods</button>' : ''}
     </form>`;
 }
 
@@ -713,7 +719,7 @@ function refreshPreview() {
   if (!$preview) return;
   const m = draftMacros();
   const $kcal = document.getElementById('f-kcal');
-  if ($kcal) $kcal.placeholder = m ? `自动算是 ${num(calories(m))}` : '';
+  if ($kcal) $kcal.placeholder = m ? `Calculated: ${num(calories(m))}` : '';
   $preview.innerHTML = m ? `<b>${num(kcalOf(m))} kcal</b>${macroLine(m)}` : '';
 }
 
@@ -728,19 +734,19 @@ function submitEntry() {
   if (sheetState.tab === 'foods') {
     const food = state.foods.find((f) => f.id === sheetState.foodId);
     const amount = parseNum(document.getElementById('f-amount').value);
-    if (!amount) return formError('填一个大于 0 的数字。');
+    if (!amount) return formError('Enter a number greater than 0.');
     justAdded = uid();
     list.push({
       id: justAdded,
       name: food.name,
-      qty: food.basis === '100g' ? `${num(amount)} g` : `${num(amount)} 份`,
+      qty: food.basis === '100g' ? `${num(amount)} g` : plural(amount, 'serving'),
       ...foodPortion(food, amount),
     });
   } else {
     const m = readMacros();
-    if (hasBadNumber(m)) return formError('营养素和卡路里只能填数字，比如 23.5。');
-    if (MACROS.every((k) => m[k] === 0)) return formError('至少填一种营养素的克数。');
-    const name = document.getElementById('f-name').value.trim() || '未命名食物';
+    if (hasBadNumber(m)) return formError('Macros and calories must be numbers, such as 23.5.');
+    if (MACROS.every((k) => m[k] === 0)) return formError('Enter grams for at least one macro.');
+    const name = document.getElementById('f-name').value.trim() || 'Unnamed food';
     const editing = list.find((e) => e.id === sheetState.editId);
     if (editing) {
       // 手动改过数值后，原来的「200 g」已不可信；卡路里清空则回到自动算
@@ -764,9 +770,9 @@ function submitEntry() {
 function submitFood() {
   const name = document.getElementById('f-name').value.trim();
   const m = readMacros();
-  if (!name) return formError('给这个食物起个名字。');
-  if (hasBadNumber(m)) return formError('营养素和卡路里只能填数字，比如 23.5。');
-  if (MACROS.every((k) => m[k] === 0)) return formError('至少填一种营养素的克数。');
+  if (!name) return formError('Give this food a name.');
+  if (hasBadNumber(m)) return formError('Macros and calories must be numbers, such as 23.5.');
+  if (MACROS.every((k) => m[k] === 0)) return formError('Enter grams for at least one macro.');
   const basis = document.querySelector('input[name="basis"]:checked').value;
   const editing = state.foods.find((f) => f.id === sheetState.editId);
   if (editing) {
@@ -785,7 +791,7 @@ function exportBackup() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `营养素备份-${today}.json`;
+  a.download = `macro-tracker-backup-${today}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -795,14 +801,14 @@ async function importBackup(file) {
   try {
     parsed = parseBackup(await file.text());
   } catch {
-    showToast('导入失败：这不是有效的备份文件，现有记录没有改动');
+    showToast('Import failed: not a valid backup file. Your data was not changed.');
     return;
   }
-  if (!confirm('导入会用备份替换现在的全部记录，继续吗？')) return;
+  if (!confirm('Importing replaces all of your current data with the backup. Continue?')) return;
   Object.assign(state, parsed);
   persist();
   render();
-  showToast('已导入备份');
+  showToast('Backup imported');
 }
 
 // ---------- 事件 ----------
@@ -824,8 +830,8 @@ const actions = {
     const from = date;
     persist();
     refreshSummary();
-    showToast(`已删除「${removed.name}」`, {
-      label: '撤销',
+    showToast(`Deleted “${removed.name}”`, {
+      label: 'Undo',
       run: () => {
         (state.entries[from] ??= []).splice(index, 0, removed);
         persist();
@@ -852,8 +858,8 @@ const actions = {
     persist();
     $sheet.close();
     render();
-    showToast(`已从食物库删除「${removed.name}」`, {
-      label: '撤销',
+    showToast(`Deleted “${removed.name}” from my foods`, {
+      label: 'Undo',
       run: () => { state.foods.splice(index, 0, removed); persist(); render(); },
     });
   },

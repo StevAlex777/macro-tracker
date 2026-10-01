@@ -56,7 +56,7 @@ export function weightChartSvg(raw, avg, unit) {
 
   return `
     <svg class="chart" viewBox="0 0 ${BOX.width} ${BOX.height}" role="img"
-         aria-label="体重变化，7 天平均从 ${avgFirst} ${unit} 到 ${avgLast} ${unit}">
+         aria-label="Weight trend: 7-day average from ${avgFirst} ${unit} to ${avgLast} ${unit}">
       <line class="chart__grid" x1="${BOX.padX}" x2="${BOX.width - BOX.padX}" y1="${BOX.padY}" y2="${BOX.padY}"/>
       <line class="chart__grid" x1="${BOX.padX}" x2="${BOX.width - BOX.padX}" y1="${BOX.height - BOX.padY}" y2="${BOX.height - BOX.padY}"/>
       <g class="chart__dots">${dots}</g>

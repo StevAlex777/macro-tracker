@@ -50,24 +50,24 @@ test('导入合法备份', () => {
 });
 
 test('导入的不是 JSON 时拒绝', () => {
-  assert.throws(() => parseBackup('hello'), /不是有效的备份文件/);
+  assert.throws(() => parseBackup('hello'), /Not a valid backup file/);
 });
 
 test('导入的 JSON 结构不对时拒绝', () => {
-  assert.throws(() => parseBackup('[1,2,3]'), /不是有效的备份文件/);
-  assert.throws(() => parseBackup(JSON.stringify({ foo: 1 })), /不是有效的备份文件/);
+  assert.throws(() => parseBackup('[1,2,3]'), /Not a valid backup file/);
+  assert.throws(() => parseBackup(JSON.stringify({ foo: 1 })), /Not a valid backup file/);
 });
 
 test('导入的体重不是数字时拒绝', () => {
   const bad = defaultState();
   bad.weights['2026-10-01'] = 'heavy';
-  assert.throws(() => parseBackup(JSON.stringify(bad)), /不是有效的备份文件/);
+  assert.throws(() => parseBackup(JSON.stringify(bad)), /Not a valid backup file/);
 });
 
 test('导入的食物记录缺营养素时拒绝', () => {
   const bad = defaultState();
   bad.entries['2026-10-01'] = [{ id: 'a', name: '谜之食物', p: 10 }];
-  assert.throws(() => parseBackup(JSON.stringify(bad)), /不是有效的备份文件/);
+  assert.throws(() => parseBackup(JSON.stringify(bad)), /Not a valid backup file/);
 });
 
 test('导入带包装卡路里的记录', () => {
@@ -79,7 +79,7 @@ test('导入带包装卡路里的记录', () => {
 test('导入的卡路里不是数字时拒绝', () => {
   const bad = defaultState();
   bad.entries['2026-10-01'] = [{ id: 'a', name: '蛋白棒', p: 28, c: 12, f: 2, kcal: '很多' }];
-  assert.throws(() => parseBackup(JSON.stringify(bad)), /不是有效的备份文件/);
+  assert.throws(() => parseBackup(JSON.stringify(bad)), /Not a valid backup file/);
 });
 
 test('旧存档没有目标模式时默认用三倍数', () => {
