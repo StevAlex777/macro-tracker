@@ -60,7 +60,7 @@ export function weightChartSvg(raw, avg, unit) {
       <line class="chart__grid" x1="${BOX.padX}" x2="${BOX.width - BOX.padX}" y1="${BOX.padY}" y2="${BOX.padY}"/>
       <line class="chart__grid" x1="${BOX.padX}" x2="${BOX.width - BOX.padX}" y1="${BOX.height - BOX.padY}" y2="${BOX.height - BOX.padY}"/>
       <g class="chart__dots">${dots}</g>
-      <polyline class="chart__line" points="${avgPoints.map(xy).join(' ')}"/>
+      <polyline class="chart__line" pathLength="1" points="${avgPoints.map(xy).join(' ')}"/>
       <g class="chart__labels">${yLabels}${xLabels}</g>
     </svg>`;
 }

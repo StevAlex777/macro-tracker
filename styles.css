@@ -14,8 +14,14 @@
   --font: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-num: ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", var(--font);
 
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --shadow-card: 0 1px 2px rgb(20 37 46 / .05), 0 10px 28px -14px rgb(20 37 46 / .18);
+  --shadow-float: 0 2px 6px rgb(20 37 46 / .12), 0 14px 32px -10px rgb(20 37 46 / .38);
+  --glass: rgb(255 255 255 / .82);
+
   --gutter: 16px;
-  --tabs-h: 56px;
+  --tabs-h: 60px;
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
@@ -32,12 +38,20 @@
     --f: #8CC486;
     --over: #FF8A7A;
     --on-ink: #17252D;
+    --shadow-card: inset 0 1px 0 rgb(255 255 255 / .05), 0 10px 28px -14px rgb(0 0 0 / .6);
+    --shadow-float: 0 2px 6px rgb(0 0 0 / .3), 0 14px 32px -10px rgb(0 0 0 / .7);
+    --glass: rgb(32 50 59 / .82);
   }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  /* 这是 app 不是文档：滑到顶不触发整页回弹和下拉刷新 */
+  overscroll-behavior: none;
+}
 
 body {
   margin: 0;
@@ -52,7 +66,23 @@ ul { list-style: none; }
 fieldset { border: 0; min-width: 0; }
 
 button, input { font: inherit; color: inherit; }
-button { cursor: pointer; border: 0; background: none; padding: 0; touch-action: manipulation; }
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+  padding: 0;
+  touch-action: manipulation;
+  /* 长按按钮不该选中文字或弹出系统菜单 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+/* 手指一按下就有反馈，而不是等松手 */
+.btn:active, .foodpick button:active, .seg button:active { transform: scale(.97); }
+.iconbtn:active { transform: scale(.9); }
+.tabs button:active { transform: scale(.94); }
+.entry:active, .day:active, .linkbtn:active { opacity: .55; }
 button:disabled { opacity: .3; cursor: default; }
 
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -74,12 +104,13 @@ main {
   flex: none;
   border-radius: 50%;
   background: var(--surface);
+  box-shadow: var(--shadow-card);
   font-size: 24px;
   line-height: 1;
   display: grid;
   place-items: center;
 }
-.iconbtn--quiet { background: none; color: var(--muted); }
+.iconbtn--quiet { background: none; color: var(--muted); box-shadow: none; }
 
 .linkbtn { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; padding: 8px 0; }
 
@@ -98,12 +129,20 @@ main {
 
 .fab {
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: calc(var(--tabs-h) + var(--safe-b) + 12px);
   width: min(448px, calc(100% - var(--gutter) * 2));
-  transform: translateX(-50%);
-  box-shadow: 0 6px 20px rgb(20 37 46 / .22);
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 54px;
+  border-radius: 27px;
+  box-shadow: var(--shadow-float);
 }
+.fab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 
 .seg {
   display: inline-flex;
@@ -119,14 +158,15 @@ main {
   color: var(--muted);
   font-weight: 600;
 }
-.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(20 37 46 / .14); }
 .seg--wide { display: flex; }
 .seg--wide button { flex: 1; }
 
 .panel {
   background: var(--surface);
-  border-radius: 18px;
+  border-radius: 20px;
   padding: 16px;
+  box-shadow: var(--shadow-card);
 }
 
 .empty, .notice, .lede, .hint { color: var(--muted); }
@@ -158,7 +198,7 @@ main {
   min-height: 44px;
   margin-bottom: 12px;
 }
-.page__head h1, .datebar h1 { font-size: 22px; line-height: 1.2; }
+.page__head h1, .datebar h1 { font-size: 24px; line-height: 1.2; letter-spacing: -.015em; }
 
 .log h2, .trend h2, .backup h2, .section-title { font-size: 15px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
 
@@ -176,8 +216,9 @@ main {
   column-gap: 12px;
   margin-top: 16px;
   padding: 10px 10px 10px 16px;
-  border-radius: 18px;
+  border-radius: 20px;
   background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 .weight label { font-weight: 600; }
 .weight input {
@@ -191,18 +232,18 @@ main {
   padding: 4px 0;
 }
 .weight input:focus { outline: none; }
-.weight:focus-within { box-shadow: inset 0 0 0 2px var(--ink); }
+.weight:focus-within { box-shadow: inset 0 0 0 2px var(--ink), var(--shadow-card); }
 .weight input::placeholder { color: var(--muted); opacity: .55; }
 .weight__hint { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 input.is-invalid { color: var(--over); }
 
 .kcal { padding: 24px 0 18px; }
 .kcal__gap { font-size: 17px; }
-.kcal__gap b { font-size: 52px; line-height: 1; letter-spacing: -.02em; margin: 0 4px; }
+.kcal__gap b { font-size: 60px; line-height: 1; letter-spacing: -.03em; margin: 0 4px; }
 .kcal__gap b.is-met { font-size: 40px; margin-left: 0; letter-spacing: 0; }
 .kcal__detail { color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
 
-.macros { background: var(--surface); border-radius: 18px; padding: 4px 16px; margin-bottom: 24px; }
+.macros { background: var(--surface); border-radius: 20px; padding: 4px 16px; margin-bottom: 24px; box-shadow: var(--shadow-card); }
 .macro { padding: 14px 0 12px; }
 .macro + .macro { border-top: 1px solid var(--line); }
 .macro__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -232,7 +273,10 @@ input.is-invalid { color: var(--over); }
 /* 以「体重的几倍」为刻度的量尺：填充 = 已吃，竖线 = 目标 */
 .ruler { position: relative; height: 40px; margin: 12px 0 4px; }
 .ruler__track { height: 14px; border-radius: 4px; background: var(--track); overflow: hidden; }
-.ruler__fill { height: 100%; background: var(--macro); }
+.ruler__fill { height: 100%; background: var(--macro); transform-origin: left center; border-radius: 0 4px 4px 0; }
+.ruler--kcal { --macro: var(--ink); height: 10px; margin: 14px 0 10px; }
+.ruler--kcal .ruler__track { height: 10px; border-radius: 5px; }
+.ruler--kcal .ruler__target { top: -4px; height: 18px; }
 .ruler__tick { position: absolute; top: 14px; width: 1px; height: 5px; background: var(--muted); }
 .ruler__tick span {
   position: absolute;
@@ -253,6 +297,8 @@ input.is-invalid { color: var(--over); }
 }
 
 .entries li, .days li { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.entries li.is-new { animation: row-in 320ms var(--ease-out) both; }
+@keyframes row-in { from { opacity: 0; transform: translateY(8px); } }
 .entry, .day {
   flex: 1;
   min-width: 0;
@@ -282,7 +328,16 @@ input.is-invalid { color: var(--over); }
 .trend__change b { color: var(--ink); font-size: 18px; }
 .chart { display: block; width: 100%; height: auto; }
 .chart__grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
-.chart__line { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart__line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  animation: draw 700ms var(--ease-out) both;
+}
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 .chart__dots { fill: var(--muted); opacity: .55; }
 
 .legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
@@ -329,7 +384,7 @@ input.is-invalid { color: var(--over); }
 }
 .target p { grid-column: 1 / -1; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .stepper { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
-.stepper .iconbtn { background: var(--track); width: 40px; height: 40px; color: var(--ink); }
+.stepper .iconbtn { background: var(--track); width: 40px; height: 40px; color: var(--ink); box-shadow: none; }
 .stepper input {
   width: 58px;
   height: 40px;
@@ -348,34 +403,45 @@ input.is-invalid { color: var(--over); }
 
 /* ---------- 底部标签栏 ---------- */
 
+/* 半透明的一层，内容从下面滚过 */
 .tabs {
   position: fixed;
   inset: auto 0 0 0;
   display: flex;
   justify-content: center;
   padding-bottom: var(--safe-b);
-  background: var(--surface);
-  border-top: 1px solid var(--line);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
 }
 .tabs button {
   flex: 1;
   max-width: 120px;
   height: var(--tabs-h);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 600;
-  position: relative;
+}
+.tabs svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .tabs button[aria-current="page"] { color: var(--ink); }
-.tabs button[aria-current="page"]::before {
-  content: "";
-  position: absolute;
-  top: -1px;
-  left: 28%;
-  right: 28%;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
-  background: var(--ink);
+.tabs button[aria-current="page"] svg { stroke-width: 2.2; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .tabs { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 
 /* ---------- 弹出面板 ---------- */
@@ -391,10 +457,35 @@ input.is-invalid { color: var(--over); }
   background: var(--bg);
   color: var(--ink);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 -8px 40px rgb(10 20 26 / .25);
+  /* 关闭状态停在屏幕下方。用过渡而不是关键帧，拖到一半松手也能从当前位置接着走 */
+  transform: translateY(100%);
+  transition: transform 260ms var(--ease-drawer), overlay 260ms allow-discrete, display 260ms allow-discrete;
 }
-.sheet::backdrop { background: rgb(10 20 26 / .5); }
-.sheet[open] { animation: sheet-in .22s ease-out; }
-@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+.sheet[open] { transform: translateY(0); transition-duration: 420ms; }
+@starting-style { .sheet[open] { transform: translateY(100%); } }
+.sheet:not([open]) { pointer-events: none; }
+
+.sheet::backdrop {
+  background: rgb(10 20 26 / 0);
+  transition: background-color 260ms ease, overlay 260ms allow-discrete, display 260ms allow-discrete;
+}
+.sheet[open]::backdrop { background: rgb(10 20 26 / .5); }
+@starting-style { .sheet[open]::backdrop { background: rgb(10 20 26 / 0); } }
+
+.sheet__grab { touch-action: none; padding: 4px 0 2px; margin: -4px 0 -10px; cursor: grab; }
+.sheet__grab::before {
+  content: "";
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin: 0 auto;
+  border-radius: 3px;
+  background: var(--muted);
+  opacity: .4;
+}
+.sheet__head { touch-action: none; }
 
 .sheet form {
   display: flex;
@@ -452,8 +543,7 @@ input.is-invalid { color: var(--over); }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--tabs-h) + var(--safe-b) + 80px);
-  transform: translateX(-50%);
+  bottom: calc(var(--tabs-h) + var(--safe-b) + 82px);
   width: max-content;
   max-width: calc(100% - var(--gutter) * 2);
   display: flex;
@@ -465,12 +555,27 @@ input.is-invalid { color: var(--over); }
   color: var(--on-ink);
   font-size: 14px;
   z-index: 10;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transform: translate(-50%, 12px) scale(.96);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
 }
-.toast[hidden] { display: none; }
+.toast.is-open {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  transition: opacity 260ms var(--ease-out), transform 260ms var(--ease-out);
+}
 .toast button { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .sheet[open] { animation: none; }
+  button { transition: none; }
+  .btn:active, .foodpick button:active, .seg button:active, .iconbtn:active, .tabs button:active { transform: none; opacity: .7; }
+  .sheet, .sheet[open] { transition: none; }
+  .entries li.is-new { animation: none; }
+  .chart__line { animation: none; }
+  .toast, .toast.is-open { transform: translate(-50%, 0); transition: opacity 160ms ease; }
 }
 
 /* 目标页的说明文字较长，放到数字下一行，避免断出孤字 */

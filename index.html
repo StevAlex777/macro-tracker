@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="color-scheme" content="light dark">
   <title>营养素记录</title>
   <meta name="description" content="记录每天的蛋白质、碳水、脂肪和体重，按体重倍数计算还差多少。">
   <meta name="theme-color" content="#E9EEF0" media="(prefers-color-scheme: light)">
@@ -20,14 +21,14 @@
   <main id="view"></main>
 
   <nav class="tabs" aria-label="页面">
-    <button type="button" data-view="today" aria-current="page">记录</button>
-    <button type="button" data-view="trends">趋势</button>
-    <button type="button" data-view="foods">食物库</button>
-    <button type="button" data-view="settings">目标</button>
+    <button type="button" data-view="today" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="3.5" width="15" height="17" rx="3"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/></svg><span>记录</span></button>
+    <button type="button" data-view="trends"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5v15h16"/><path d="M7.5 14.5l3.5-4 3 2.5 4.5-6"/></svg><span>趋势</span></button>
+    <button type="button" data-view="foods"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11.5h17a8.5 8.5 0 0 1-17 0z"/><path d="M10 3.5c0 2-1.8 2-1.8 4M14.5 3.5c0 2-1.8 2-1.8 4"/></svg><span>食物库</span></button>
+    <button type="button" data-view="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span>目标</span></button>
   </nav>
 
   <dialog id="sheet" class="sheet"></dialog>
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <noscript>这个页面需要开启 JavaScript 才能使用。</noscript>
   <script type="module" src="js/app.js"></script>

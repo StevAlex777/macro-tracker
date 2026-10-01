@@ -1,6 +1,6 @@
 // 离线缓存。先用缓存秒开，同时在后台取新版本，下次打开生效。
 // 改了文件列表时把版本号加一，旧缓存会被清掉。
-const CACHE = 'macro-tracker-v3';
+const CACHE = 'macro-tracker-v4';
 const ASSETS = [
   './',
   './index.html',

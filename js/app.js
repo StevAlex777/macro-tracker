@@ -22,6 +22,7 @@ let today = dateKey(new Date());
 let date = today;
 let trendRange = 30;
 let sheetState = null;
+let justAdded = null; // 刚添加的记录 id，渲染时给它一个进入动画
 
 // ---------- 小工具 ----------
 
@@ -59,14 +60,14 @@ let toastTimer;
 function showToast(message, action) {
   clearTimeout(toastTimer);
   $toast.innerHTML = `<span>${esc(message)}</span>${action ? `<button type="button">${esc(action.label)}</button>` : ''}`;
-  $toast.hidden = false;
+  $toast.classList.add('is-open');
   if (action) {
     $toast.querySelector('button').addEventListener('click', () => {
-      $toast.hidden = true;
+      $toast.classList.remove('is-open');
       action.run();
     });
   }
-  toastTimer = setTimeout(() => { $toast.hidden = true; }, action ? 5000 : 2500);
+  toastTimer = setTimeout(() => { $toast.classList.remove('is-open'); }, action ? 5000 : 2500);
 }
 
 const macroLine = (m) => MACROS.map((k) => `<span class="dot dot--${k}">${NAMES[k]} ${num(m[k])}</span>`).join('');
@@ -101,7 +102,7 @@ function todayHtml() {
     </section>
 
     <div id="summary">${summaryHtml()}</div>
-    <button type="button" class="btn btn--primary fab" data-act="add-entry">添加食物</button>`;
+    <button type="button" class="btn btn--primary fab" data-act="add-entry"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>添加食物</button>`;
 }
 
 function weightHint() {
@@ -127,14 +128,63 @@ function verdict(kind, eaten, target) {
   return surplus ? { label: '已达标，多', value: diff, over: false } : { label: '已达标', value: null, over: false };
 }
 
-const verdictHtml = (v, unit) => (
-  v.value === null ? `<b class="is-met">${v.label}</b>` : `${v.label} <b>${num(v.value)}</b> ${unit}`
+// count 为 true 时给数字打上标记，变化时由 animateSummary 滚动过去
+const verdictHtml = (v, unit, count = false) => (
+  v.value === null
+    ? `<b class="is-met">${v.label}</b>`
+    : `${v.label} <b ${count ? `data-count="${Math.round(v.value)}"` : ''}>${num(v.value)}</b> ${unit}`
 );
 
-function rulerHtml(eatenMult, targetMult) {
+function kcalBarHtml(eaten, target) {
+  const max = Math.max(target * 1.12, eaten, 1);
+  const ratio = Math.min(eaten / max, 1).toFixed(4);
+  return `
+    <div class="ruler ruler--kcal" aria-hidden="true">
+      <div class="ruler__track"><div class="ruler__fill" data-k="kcal" data-ratio="${ratio}" style="transform:scaleX(${ratio})"></div></div>
+      <i class="ruler__target" style="left:${((target / max) * 100).toFixed(2)}%"></i>
+    </div>`;
+}
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
+let lastSummary = null;
+
+// 同一天的数据变了（加了食物、改了体重）时，让进度条和大数字从旧值过渡到新值。
+// 切换日期或标签页不算变化，直接显示，不做动画
+function animateSummary() {
+  const now = { date };
+  for (const el of document.querySelectorAll('.ruler__fill')) now[el.dataset.k] = Number(el.dataset.ratio);
+  const $count = document.querySelector('.kcal__gap [data-count]');
+  if ($count) now.count = Number($count.dataset.count);
+
+  const prev = lastSummary;
+  lastSummary = now;
+  if (!prev || prev.date !== date || reduceMotion.matches) return;
+
+  for (const el of document.querySelectorAll('.ruler__fill')) {
+    const from = prev[el.dataset.k];
+    const to = now[el.dataset.k];
+    if (from === undefined || from === to) continue;
+    el.animate([{ transform: `scaleX(${from})` }, { transform: `scaleX(${to})` }], { duration: 450, easing: EASE_OUT });
+  }
+  if ($count && prev.count !== undefined && prev.count !== now.count) {
+    const start = performance.now();
+    const tick = (t) => {
+      if (!$count.isConnected) return;
+      const p = Math.min((t - start) / 450, 1);
+      const eased = 1 - (1 - p) ** 4;
+      $count.textContent = num(Math.round(prev.count + (now.count - prev.count) * eased));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+}
+
+function rulerHtml(eatenMult, targetMult, key) {
   const max = Math.max(targetMult, eatenMult, 0.4) * 1.12;
   const step = max > 3.4 ? 1 : max > 1.2 ? 0.5 : 0.25;
   const pct = (v) => `${Math.min((v / max) * 100, 100).toFixed(2)}%`;
+  const ratio = Math.min(eatenMult / max, 1).toFixed(4);
   let ticks = '';
   // 贴着右边缘的刻度文字会溢出，留一点余量
   for (let t = step; t < max * 0.96; t += step) {
@@ -142,7 +192,7 @@ function rulerHtml(eatenMult, targetMult) {
   }
   return `
     <div class="ruler" aria-hidden="true">
-      <div class="ruler__track"><div class="ruler__fill" style="width:${pct(eatenMult)}"></div></div>
+      <div class="ruler__track"><div class="ruler__fill" data-k="${key}" data-ratio="${ratio}" style="transform:scaleX(${ratio})"></div></div>
       ${ticks}
       <i class="ruler__target" style="left:${pct(targetMult)}"></i>
     </div>`;
@@ -156,7 +206,7 @@ function macroRowHtml(k, eaten, target, mult, kg) {
         <h2>${NAMES[k]}</h2>
         <p class="macro__gap ${v.over ? 'is-over' : ''}">${verdictHtml(v, 'g')}</p>
       </div>
-      ${rulerHtml(mult[k], target[k] / kg)}
+      ${rulerHtml(mult[k], target[k] / kg, k)}
       <div class="macro__foot">
         <span>已吃 ${num(eaten[k])} g，体重的 ${mult[k]} 倍</span>
         <span>${KIND[k] === 'floor' ? '至少' : '目标'} ${num(target[k])} g</span>
@@ -169,7 +219,7 @@ function entriesHtml(entries) {
     return '<p class="empty">这天还没有记录。吃了什么，点下面的「添加食物」记下来。</p>';
   }
   return `<ul class="entries">${entries.map((e) => `
-    <li>
+    <li class="${e.id === justAdded ? 'is-new' : ''}">
       <button type="button" class="entry" data-act="edit-entry" data-id="${esc(e.id)}">
         <span class="entry__name">${esc(e.name)}${e.qty ? `<small>${esc(e.qty)}</small>` : ''}</span>
         <span class="entry__kcal">${num(kcalOf(e))} kcal</span>
@@ -200,14 +250,18 @@ function summaryHtml() {
   const v = verdict('ceiling', eatenKcal, target.kcal);
   return `
     <section class="kcal">
-      <p class="kcal__gap ${v.over ? 'is-over' : ''}">${verdictHtml(v, 'kcal')}</p>
+      <p class="kcal__gap ${v.over ? 'is-over' : ''}">${verdictHtml(v, 'kcal', true)}</p>
+      ${kcalBarHtml(eatenKcal, target.kcal)}
       <p class="kcal__detail">已吃 ${num(eatenKcal)}，目标 ${num(target.kcal)} kcal</p>
     </section>
     <section class="macros">${MACROS.map((k) => macroRowHtml(k, eaten, target, mult, kg)).join('')}</section>
     <section class="log"><h2>吃了什么</h2>${entriesHtml(entries)}</section>`;
 }
 
-const refreshSummary = () => { document.getElementById('summary').innerHTML = summaryHtml(); };
+const refreshSummary = () => {
+  document.getElementById('summary').innerHTML = summaryHtml();
+  animateSummary();
+};
 
 // ---------- 趋势页 ----------
 
@@ -346,7 +400,7 @@ function foodsHtml() {
     <header class="page__head"><h1>食物库</h1></header>
     <p class="lede">把常吃的食物存在这里，记录时选中它、填重量，营养素会自动算好。</p>
     ${list ? `<ul class="entries">${list}</ul>` : '<p class="empty">食物库还是空的。点下面的「新增食物」，照着包装上的营养成分表填一次就行。</p>'}
-    <button type="button" class="btn btn--primary fab" data-act="new-food">新增食物</button>`;
+    <button type="button" class="btn btn--primary fab" data-act="new-food"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新增食物</button>`;
 }
 
 // ---------- 目标页 ----------
@@ -525,6 +579,8 @@ const VIEWS = { today: todayHtml, trends: trendsHtml, foods: foodsHtml, settings
 function render() {
   $view.innerHTML = VIEWS[view]();
   $view.dataset.view = view;
+  if (view === 'today') animateSummary();
+  justAdded = null;
   for (const tab of document.querySelectorAll('.tabs button')) {
     if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
@@ -578,6 +634,7 @@ function entrySheetHtml() {
   const canSubmit = tab === 'manual' || food;
   return `
     <form id="sheet-form" novalidate>
+      ${GRAB}
       <header class="sheet__head">
         <h2>${editing ? '修改记录' : '添加食物'}</h2>
         <button type="button" class="iconbtn iconbtn--quiet" data-act="close-sheet" aria-label="关闭">×</button>
@@ -594,6 +651,7 @@ function foodSheetHtml() {
   const basis = editing?.basis ?? '100g';
   return `
     <form id="sheet-form" novalidate>
+      ${GRAB}
       <header class="sheet__head">
         <h2>${editing ? '修改食物' : '新增食物'}</h2>
         <button type="button" class="iconbtn iconbtn--quiet" data-act="close-sheet" aria-label="关闭">×</button>
@@ -612,6 +670,8 @@ function foodSheetHtml() {
     </form>`;
 }
 
+const GRAB = '<div class="sheet__grab" aria-hidden="true"></div>';
+
 function renderSheet() {
   $sheet.innerHTML = sheetState.kind === 'entry' ? entrySheetHtml() : foodSheetHtml();
   refreshPreview();
@@ -620,7 +680,10 @@ function renderSheet() {
 function openSheet(next) {
   sheetState = next;
   renderSheet();
-  if (!$sheet.open) $sheet.showModal();
+  if (!$sheet.open) {
+    $sheet.style.transform = '';
+    $sheet.showModal();
+  }
 }
 
 function readMacros() {
@@ -666,8 +729,9 @@ function submitEntry() {
     const food = state.foods.find((f) => f.id === sheetState.foodId);
     const amount = parseNum(document.getElementById('f-amount').value);
     if (!amount) return formError('填一个大于 0 的数字。');
+    justAdded = uid();
     list.push({
-      id: uid(),
+      id: justAdded,
       name: food.name,
       qty: food.basis === '100g' ? `${num(amount)} g` : `${num(amount)} 份`,
       ...foodPortion(food, amount),
@@ -684,13 +748,15 @@ function submitEntry() {
       delete editing.kcal;
       Object.assign(editing, { name, ...m });
     } else {
-      list.push({ id: uid(), name, ...m });
+      justAdded = uid();
+      list.push({ id: justAdded, name, ...m });
       if (document.getElementById('f-save').checked) {
         state.foods.push({ id: uid(), name, basis: 'serving', ...m });
       }
     }
   }
   persist();
+  if (justAdded) navigator.vibrate?.(10);
   $sheet.close();
   render();
 }
@@ -899,8 +965,49 @@ $sheet.addEventListener('submit', (event) => {
   if (sheetState.kind === 'entry') submitEntry();
   else submitFood();
 });
-// 点面板外的遮罩关闭
-$sheet.addEventListener('click', (event) => { if (event.target === $sheet) $sheet.close(); });
+// 点面板上方的遮罩关闭。按坐标判断：拖拽时指针被面板捕获，松手的 click 也会落在面板上
+$sheet.addEventListener('click', (event) => {
+  if (event.target === $sheet && event.clientY < $sheet.getBoundingClientRect().top) $sheet.close();
+});
+
+// 按住把手或标题往下拖可以关闭面板：跟手移动，松手时看速度和距离决定关还是弹回
+let drag = null;
+// 往上拖没有更多内容，越拖阻力越大
+const rubberband = (overshoot, size) => (overshoot * size * 0.55) / (size + 0.55 * overshoot);
+
+$sheet.addEventListener('pointerdown', (event) => {
+  if (drag || !event.target.closest('.sheet__grab, .sheet__head') || event.target.closest('button')) return;
+  drag = { id: event.pointerId, startY: event.clientY, lastY: event.clientY, lastT: event.timeStamp, velocity: 0 };
+  $sheet.setPointerCapture(event.pointerId);
+  $sheet.style.transition = 'none';
+});
+
+$sheet.addEventListener('pointermove', (event) => {
+  if (!drag || event.pointerId !== drag.id) return;
+  const dy = event.clientY - drag.startY;
+  const dt = event.timeStamp - drag.lastT;
+  if (dt > 0) drag.velocity = (event.clientY - drag.lastY) / dt; // px/ms
+  drag.lastY = event.clientY;
+  drag.lastT = event.timeStamp;
+  const y = dy >= 0 ? dy : -rubberband(-dy, $sheet.offsetHeight);
+  $sheet.style.transform = `translateY(${y}px)`;
+});
+
+function endDrag(event) {
+  if (!drag || event.pointerId !== drag.id) return;
+  const dy = event.clientY - drag.startY;
+  // 手指停住再松开时不会再有 move 事件，上一次的速度已经过期，不能算作一甩
+  const paused = event.timeStamp - drag.lastT > 80;
+  const flick = !paused && drag.velocity > 0.5 && dy > 0;
+  const far = dy > $sheet.offsetHeight * 0.3;
+  drag = null;
+  // 恢复 CSS 过渡后再清掉内联位移，面板会从当前位置继续滑走或弹回
+  $sheet.style.transition = '';
+  $sheet.style.transform = '';
+  if (event.type === 'pointerup' && (flick || far)) $sheet.close();
+}
+$sheet.addEventListener('pointerup', endDrag);
+$sheet.addEventListener('pointercancel', endDrag);
 
 // 过了午夜再回到页面时，跟着切到新的一天
 document.addEventListener('visibilitychange', () => {
