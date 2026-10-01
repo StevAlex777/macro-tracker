@@ -4,6 +4,7 @@ import {
   lbToKg, kgToLb, toDisplayWeight, fromInputWeight, calories, sumEntries,
   targetGrams, remaining, multiples, weightOn, foodPortion, dateKey, shiftDate, kcalOf, sumKcal,
   rollingAverage, linearTrend, weeklyRate, estimateExpenditure, averageIntake, dailyTarget, status, kgPerWeekFromDeficit,
+  restingEnergy, totalEnergy, intakeRangeForLoss, ftInToCm, cmToFtIn,
 } from '../js/calc.js';
 
 test('165 lb 换算成约 74.84 kg', () => {
@@ -280,4 +281,47 @@ test('目标为 0 时吃了任何量都算超出', () => {
 
 test('每天 550 kcal 的缺口约等于每周 0.5 kg', () => {
   assert.equal(kgPerWeekFromDeficit(550), 0.5);
+});
+
+// ---------- 公式估算消耗 ----------
+
+const man = { sex: 'male', age: 30, heightCm: 175, activity: 1.55 };
+
+test('男性静息消耗按 Mifflin-St Jeor 公式', () => {
+  // 10×75 + 6.25×175 − 5×30 + 5 = 1698.75
+  assert.equal(restingEnergy(man, 75), 1699);
+});
+
+test('女性静息消耗比同条件男性低 166', () => {
+  assert.equal(restingEnergy({ ...man, sex: 'female' }, 75), 1533);
+});
+
+test('资料没填全时不估算静息消耗', () => {
+  assert.equal(restingEnergy({ ...man, sex: null }, 75), null);
+  assert.equal(restingEnergy({ ...man, age: null }, 75), null);
+  assert.equal(restingEnergy({ ...man, heightCm: null }, 75), null);
+  assert.equal(restingEnergy(man, null), null);
+});
+
+test('每日总消耗 = 静息消耗 × 活动系数', () => {
+  assert.equal(totalEnergy(man, 75), 2633); // 1698.75 × 1.55
+});
+
+test('没选活动量时不估算总消耗', () => {
+  assert.equal(totalEnergy({ ...man, activity: null }, 75), null);
+});
+
+test('每周降体重 0.5–1% 对应的每日摄入范围', () => {
+  // 75 kg 的 1% = 0.75 kg/周 = 825 kcal/天；0.5% = 412.5 kcal/天
+  assert.deepEqual(intakeRangeForLoss(2400, 75), { low: 1575, high: 1988 });
+});
+
+test('英尺英寸与厘米互换', () => {
+  assert.equal(ftInToCm(5, 9), 175.3);
+  assert.deepEqual(cmToFtIn(175.3), { ft: 5, inch: 9 });
+  assert.deepEqual(cmToFtIn(182.88), { ft: 6, inch: 0 });
+});
+
+test('接近整英尺时进位而不是显示 12 英寸', () => {
+  assert.deepEqual(cmToFtIn(182.8), { ft: 6, inch: 0 });
 });

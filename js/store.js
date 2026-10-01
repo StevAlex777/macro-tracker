@@ -1,10 +1,19 @@
 // 本地存储读写与备份校验。storage 由调用方传入，便于测试。
 
+import { ACTIVITY_LEVELS } from './calc.js';
+
 export const STORAGE_KEY = 'macro-tracker-v1';
 
 export const defaultState = () => ({
   // mode：multiples = 三个倍数；kcal = 定总热量，碳水取余数
-  settings: { unit: 'lb', targets: { p: 2, c: 2, f: 0.8 }, mode: 'multiples', kcalTarget: null },
+  settings: {
+    unit: 'lb',
+    targets: { p: 2, c: 2, f: 0.8 },
+    mode: 'multiples',
+    kcalTarget: null,
+    // 用公式估算消耗所需的资料，没填的项为 null
+    profile: { sex: null, age: null, heightCm: null, activity: null },
+  },
   weights: {},
   entries: {},
   foods: [],
@@ -17,6 +26,16 @@ const hasMacros = (v) => isObject(v) && isAmount(v.p) && isAmount(v.c) && isAmou
 const isEntry = (v) => hasMacros(v) && typeof v.name === 'string' && (v.kcal === undefined || isAmount(v.kcal));
 const isFood = (v) => isEntry(v) && (v.basis === '100g' || v.basis === 'serving');
 
+function cleanProfile(raw) {
+  const p = isObject(raw) ? raw : {};
+  return {
+    sex: p.sex === 'male' || p.sex === 'female' ? p.sex : null,
+    age: isAmount(p.age) ? p.age : null,
+    heightCm: isAmount(p.heightCm) ? p.heightCm : null,
+    activity: ACTIVITY_LEVELS.some((a) => a.value === p.activity) ? p.activity : null,
+  };
+}
+
 // 缺的字段用默认值补齐，这样旧版本存档也能读
 function withDefaults(raw) {
   const base = defaultState();
@@ -27,6 +46,7 @@ function withDefaults(raw) {
       targets: { ...base.settings.targets, ...(isObject(settings.targets) ? settings.targets : {}) },
       mode: settings.mode === 'kcal' ? 'kcal' : base.settings.mode,
       kcalTarget: isAmount(settings.kcalTarget) ? settings.kcalTarget : base.settings.kcalTarget,
+      profile: cleanProfile(settings.profile),
     },
     weights: isObject(raw.weights) ? raw.weights : base.weights,
     entries: isObject(raw.entries) ? raw.entries : base.entries,

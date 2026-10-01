@@ -169,3 +169,44 @@ export function status(kind, eaten, target) {
   if (kind === 'ceiling' && eaten > target * (1 + TOLERANCE)) return 'over';
   return 'met';
 }
+
+// ---------- 公式估算消耗（还没有足够记录时用） ----------
+
+export const ACTIVITY_LEVELS = [
+  { value: 1.2, name: '久坐', detail: '坐着工作，基本不运动' },
+  { value: 1.375, name: '轻度', detail: '每周运动 1–3 次' },
+  { value: 1.55, name: '中度', detail: '每周运动 3–5 次' },
+  { value: 1.725, name: '高度', detail: '每周运动 6–7 次，或体力工作' },
+];
+
+// 静息消耗（基础代谢），Mifflin-St Jeor 公式。资料不全返回 null
+function restingExact({ sex, age, heightCm }, kg) {
+  if (kg == null || age == null || heightCm == null || (sex !== 'male' && sex !== 'female')) return null;
+  return 10 * kg + 6.25 * heightCm - 5 * age + (sex === 'male' ? 5 : -161);
+}
+
+export function restingEnergy(profile, kg) {
+  const exact = restingExact(profile, kg);
+  return exact === null ? null : round(exact, 0);
+}
+
+// 每日总消耗 = 静息消耗 × 活动系数
+export function totalEnergy(profile, kg) {
+  const exact = restingExact(profile, kg);
+  return exact === null || profile.activity == null ? null : round(exact * profile.activity, 0);
+}
+
+// 每周降体重 0.5–1% 时每天该吃多少：low 对应 1%，high 对应 0.5%
+export function intakeRangeForLoss(expenditure, kg) {
+  const perDay = (pct) => (kg * pct * KCAL_PER_KG) / 7;
+  return { low: round(expenditure - perDay(0.01), 0), high: round(expenditure - perDay(0.005), 0) };
+}
+
+const CM_PER_IN = 2.54;
+export const ftInToCm = (ft, inch) => round((ft * 12 + inch) * CM_PER_IN);
+export function cmToFtIn(cm) {
+  const total = cm / CM_PER_IN;
+  const ft = Math.floor(total / 12);
+  const inch = round(total - ft * 12);
+  return inch >= 12 ? { ft: ft + 1, inch: 0 } : { ft, inch };
+}

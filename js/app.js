@@ -3,6 +3,7 @@ import {
   fromInputWeight, toDisplayWeight, dateKey, parseDateKey, shiftDate,
   rollingAverage, weeklyRate, averageIntake, estimateExpenditure, EXPENDITURE_NEEDS, kgPerWeekFromDeficit,
   dailyTarget, status,
+  restingEnergy, totalEnergy, intakeRangeForLoss, ftInToCm, cmToFtIn, ACTIVITY_LEVELS,
 } from './calc.js';
 import { load, save, parseBackup } from './store.js';
 import { weightChartSvg } from './chart.js';
@@ -243,13 +244,17 @@ function expenditureHtml() {
   const est = estimateExpenditure(state.weights, state.entries, today);
   if (!est.ok) {
     const need = EXPENDITURE_NEEDS;
+    const formula = bestExpenditure();
     return `
       <p class="hint">记录够多之后，这里会用你吃的量和体重的变化，反推你每天实际消耗多少。最近 28 天的进度：</p>
       <ul class="needs">
         <li>称重 <b>${est.weighIns}</b> / ${need.weighIns} 次</li>
         <li>称重前后跨 <b>${est.spanDays}</b> / ${need.spanDays} 天</li>
         <li>饮食记录 <b>${est.loggedDays}</b> / ${need.loggedDays} 天</li>
-      </ul>`;
+      </ul>
+      ${formula
+        ? `<p class="note">在那之前，按公式估算每天消耗约 ${num(formula.kcal)} kcal。${deficitNote(latestTarget().target)}</p>`
+        : '<p class="hint">想现在就有个参考，到「目标」页填性别、年龄、身高和活动量，可以先按公式估算。</p>'}`;
   }
   const [low, high] = [round50(est.low), round50(est.high)];
   const { target } = latestTarget();
@@ -365,12 +370,20 @@ function targetTotal(target) {
   return `合计 <b>${num(target.kcal)}</b> kcal`;
 }
 
+// 当前最可信的每日消耗：记录够了用反推的，否则用公式；都没有则为 null
+function bestExpenditure() {
+  const est = estimateExpenditure(state.weights, state.entries, today);
+  if (est.ok) return { kcal: round50(est.kcal), source: 'data' };
+  const formula = totalEnergy(state.settings.profile, weightOn(state.weights, today));
+  return formula === null ? null : { kcal: round50(formula), source: 'formula' };
+}
+
 // 目标和估算消耗相比是多大的缺口；估算不出来时返回空串
 function deficitNote(target) {
-  const est = estimateExpenditure(state.weights, state.entries, today);
-  if (!est.ok || target === null) return '';
+  const best = bestExpenditure();
+  if (!best || target === null) return '';
   const { unit } = state.settings;
-  const deficit = round50(est.kcal) - target.kcal;
+  const deficit = best.kcal - target.kcal;
   if (deficit <= 0) return `现在的目标 ${num(target.kcal)} kcal 不低于估算的消耗，照这样吃体重不会降。`;
   return `现在的目标 ${num(target.kcal)} kcal 相当于每天缺口约 ${num(round50(deficit))} kcal，照这样每周大约降 ${toDisplayWeight(kgPerWeekFromDeficit(deficit), unit)} ${unit}。`;
 }
@@ -382,8 +395,10 @@ function targetNotes(target) {
   if (target?.overBudget) notes.push('<span class="is-over">蛋白质和脂肪加起来已经超过总热量，碳水被记为 0。调高总热量，或调低蛋白质、脂肪的倍数。</span>');
   if (targets.p < 1.6) notes.push('蛋白质低于减脂期常用的 1.6–2.4 g/kg，更容易掉肌肉。');
   if (targets.f < 0.5) notes.push('脂肪低于常见建议的下限 0.5 g/kg。');
-  const est = estimateExpenditure(state.weights, state.entries, today);
-  if (est.ok && target) notes.push(`按你最近的记录估算，每天实际消耗约 ${num(round50(est.kcal))} kcal。${deficitNote(target)}`);
+  const best = bestExpenditure();
+  if (best && target) {
+    notes.push(`${best.source === 'data' ? '按你最近的记录反推' : '按公式估算'}，每天消耗约 ${num(best.kcal)} kcal。${deficitNote(target)}`);
+  }
   return notes.map((n) => `<p class="hint">${n}</p>`).join('');
 }
 
@@ -395,6 +410,53 @@ function stepperHtml(id, value, act, attrs, step, name, unit) {
       <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="${step}" aria-label="${name}增加 ${step}">+</button>
       <span>${unit}</span>
     </div>`;
+}
+
+function energyHtml() {
+  const { unit, profile } = state.settings;
+  const kg = weightOn(state.weights, today);
+  if (kg === null) return '<p class="hint">先在「记录」页输入体重，这里才能算。</p>';
+  const resting = restingEnergy(profile, kg);
+  if (resting === null) return '<p class="hint">填好性别、年龄和身高，就能算出静息消耗。</p>';
+  const restingHtml = `<p class="stat">静息消耗约 <b>${num(round50(resting))}</b> kcal<small>整天躺着也会消耗的量</small></p>`;
+  const total = totalEnergy(profile, kg);
+  if (total === null) return `${restingHtml}<p class="hint">再选一个活动量，就能算出每日总消耗。</p>`;
+
+  const best = bestExpenditure();
+  const range = intakeRangeForLoss(best.kcal, kg);
+  // 建议的摄入不低于静息消耗
+  const floor = round50(resting);
+  const low = Math.max(round50(range.low), floor);
+  const high = Math.max(round50(range.high), low);
+  return `
+    ${restingHtml}
+    <p class="stat">每日总消耗约 <b>${num(round50(total))}</b> kcal<small>静息消耗 × 活动量</small></p>
+    ${best.source === 'data' ? `<p class="note">按你最近的饮食和体重记录反推，实际消耗约 ${num(best.kcal)} kcal。两个数不一样时以这个为准，下面的建议按它算。</p>` : ''}
+    <p class="note">想每周降 ${toDisplayWeight(kg * 0.005, unit)}–${toDisplayWeight(kg * 0.01, unit)} ${unit}（体重的 0.5–1%），每天吃大约 ${low === high ? num(low) : `${num(low)}–${num(high)}`} kcal。${round50(range.low) < floor ? '下限没有低于静息消耗，不建议长期吃得比它还少。' : ''}</p>
+    <p class="hint">公式是 Mifflin-St Jeor，对多数人的误差在 ±10% 左右，活动量是最估不准的一项。连续记录两周后，「趋势」页会用你自己的数据反推，比公式准。</p>`;
+}
+
+function profileHtml() {
+  const { unit, profile } = state.settings;
+  const height = profile.heightCm === null ? { ft: '', inch: '' } : cmToFtIn(profile.heightCm);
+  return `
+    <section class="panel profile">
+      <fieldset class="radios">
+        <legend>性别（公式需要）</legend>
+        ${[['male', '男'], ['female', '女']].map(([v, label]) => `<label><input type="radio" name="sex" value="${v}" ${profile.sex === v ? 'checked' : ''}> ${label}</label>`).join('')}
+      </fieldset>
+      <div class="field-row">
+        ${field('profile-age', '年龄', profile.age ?? '')}
+        ${unit === 'lb'
+          ? field('profile-ft', '身高（英尺）', height.ft) + field('profile-in', '英寸', height.inch)
+          : field('profile-cm', '身高（厘米）', profile.heightCm ?? '')}
+      </div>
+      <fieldset class="radios radios--stack">
+        <legend>活动量</legend>
+        ${ACTIVITY_LEVELS.map((a) => `<label><input type="radio" name="activity" value="${a.value}" ${profile.activity === a.value ? 'checked' : ''}> <span>${a.name}<small>${a.detail}</small></span></label>`).join('')}
+      </fieldset>
+      <div id="energy-result">${energyHtml()}</div>
+    </section>`;
 }
 
 function settingsHtml() {
@@ -412,6 +474,9 @@ function settingsHtml() {
     </div>`;
   return `
     <header class="page__head"><h1>每日目标</h1></header>
+    <h2 class="section-title">你每天消耗多少</h2>
+    ${profileHtml()}
+    <h2 class="section-title">每天吃多少</h2>
     <div class="seg seg--wide" role="group" aria-label="目标的设法">
       <button type="button" data-act="set-mode" data-mode="multiples" aria-pressed="${mode !== 'kcal'}">三个倍数</button>
       <button type="button" data-act="set-mode" data-mode="kcal" aria-pressed="${mode === 'kcal'}">定总热量</button>
@@ -446,6 +511,11 @@ function refreshTargetDerived() {
   }
   document.getElementById('target-total').innerHTML = targetTotal(target);
   document.getElementById('target-notes').innerHTML = targetNotes(target);
+}
+
+function refreshEnergy() {
+  document.getElementById('energy-result').innerHTML = energyHtml();
+  refreshTargetDerived();
 }
 
 // ---------- 渲染 ----------
@@ -784,6 +854,21 @@ $view.addEventListener('input', (event) => {
     state.settings.kcalTarget = n;
     persist();
     refreshTargetDerived();
+  } else if (el.id?.startsWith('profile-')) {
+    const { profile } = state.settings;
+    const n = parseNum(el.value);
+    el.classList.toggle('is-invalid', Number.isNaN(n));
+    if (Number.isNaN(n)) return;
+    if (el.id === 'profile-age') profile.age = n;
+    else if (el.id === 'profile-cm') profile.heightCm = n;
+    else {
+      const ft = parseNum(document.getElementById('profile-ft').value);
+      const inch = parseNum(document.getElementById('profile-in').value) ?? 0;
+      if (Number.isNaN(ft) || Number.isNaN(inch)) return;
+      profile.heightCm = ft === null ? null : ftInToCm(ft, inch);
+    }
+    persist();
+    refreshEnergy();
   } else if (el.id?.startsWith('target-')) {
     const n = parseNum(el.value);
     el.classList.toggle('is-invalid', n === null || Number.isNaN(n));
@@ -795,6 +880,13 @@ $view.addEventListener('input', (event) => {
 });
 
 $view.addEventListener('change', (event) => {
+  const { name, value } = event.target;
+  if (name === 'sex' || name === 'activity') {
+    state.settings.profile[name] = name === 'sex' ? value : Number(value);
+    persist();
+    refreshEnergy();
+    return;
+  }
   if (event.target.id !== 'import-file') return;
   const [file] = event.target.files;
   event.target.value = '';

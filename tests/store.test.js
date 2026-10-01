@@ -98,3 +98,16 @@ test('定总热量模式能随备份保存和恢复', () => {
   assert.equal(state.settings.mode, 'kcal');
   assert.equal(state.settings.kcalTarget, 1800);
 });
+
+test('旧存档没有个人资料时补上空资料', () => {
+  const state = load(fakeStorage({ [STORAGE_KEY]: JSON.stringify({ weights: {} }) }));
+  assert.deepEqual(state.settings.profile, { sex: null, age: null, heightCm: null, activity: null });
+});
+
+test('个人资料能保存，无效的字段被丢弃', () => {
+  const backup = defaultState();
+  backup.settings.profile = { sex: 'female', age: 28, heightCm: 165, activity: 1.375 };
+  assert.deepEqual(parseBackup(JSON.stringify(backup)).settings.profile, backup.settings.profile);
+  backup.settings.profile = { sex: 'robot', age: '很老', heightCm: 165, activity: 9 };
+  assert.deepEqual(parseBackup(JSON.stringify(backup)).settings.profile, { sex: null, age: null, heightCm: 165, activity: null });
+});

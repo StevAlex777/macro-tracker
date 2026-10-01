@@ -160,7 +160,7 @@ main {
 }
 .page__head h1, .datebar h1 { font-size: 22px; line-height: 1.2; }
 
-.log h2, .trend h2, .backup h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.log h2, .trend h2, .backup h2, .section-title { font-size: 15px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
 
 /* ---------- 记录页 ---------- */
 
@@ -292,7 +292,8 @@ input.is-invalid { color: var(--over); }
 .stat { margin-top: 6px; color: var(--muted); }
 .stat b { font-size: 26px; color: var(--ink); margin: 0 2px; }
 .stat small { margin-left: 10px; }
-.trend .hint, .trend .note { font-size: 13px; margin-top: 6px; }
+.trend .hint, .trend .note, .profile .hint, .profile .note { font-size: 13px; margin-top: 6px; }
+.profile .note:empty { display: none; }
 .trend .note:empty { display: none; }
 .trend .entry__macros { margin-top: 2px; }
 .needs { margin-top: 8px; display: grid; gap: 4px; color: var(--muted); font-size: 14px; }
@@ -437,6 +438,12 @@ input.is-invalid { color: var(--over); }
 .check input, .radios input { width: 22px; height: 22px; accent-color: var(--ink); }
 .radios { display: flex; flex-wrap: wrap; gap: 0 24px; }
 .radios legend { width: 100%; }
+.radios--stack { flex-direction: column; }
+.radios--stack small { display: block; }
+
+.profile { display: grid; gap: 14px; margin-bottom: 28px; }
+.profile .field input { background: var(--bg); border-color: transparent; }
+.section-title { margin-bottom: 8px; }
 
 .form-error { color: var(--over); font-size: 14px; }
 
@@ -465,3 +472,6 @@ input.is-invalid { color: var(--over); }
 @media (prefers-reduced-motion: reduce) {
   .sheet[open] { animation: none; }
 }
+
+/* 目标页的说明文字较长，放到数字下一行，避免断出孤字 */
+.profile .stat small { display: block; margin-left: 0; }
