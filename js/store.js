@@ -3,7 +3,8 @@
 export const STORAGE_KEY = 'macro-tracker-v1';
 
 export const defaultState = () => ({
-  settings: { unit: 'lb', targets: { p: 2, c: 2, f: 0.8 } },
+  // mode：multiples = 三个倍数；kcal = 定总热量，碳水取余数
+  settings: { unit: 'lb', targets: { p: 2, c: 2, f: 0.8 }, mode: 'multiples', kcalTarget: null },
   weights: {},
   entries: {},
   foods: [],
@@ -24,6 +25,8 @@ function withDefaults(raw) {
     settings: {
       unit: settings.unit === 'kg' ? 'kg' : base.settings.unit,
       targets: { ...base.settings.targets, ...(isObject(settings.targets) ? settings.targets : {}) },
+      mode: settings.mode === 'kcal' ? 'kcal' : base.settings.mode,
+      kcalTarget: isAmount(settings.kcalTarget) ? settings.kcalTarget : base.settings.kcalTarget,
     },
     weights: isObject(raw.weights) ? raw.weights : base.weights,
     entries: isObject(raw.entries) ? raw.entries : base.entries,

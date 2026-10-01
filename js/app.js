@@ -1,6 +1,8 @@
 import {
-  MACROS, calories, kcalOf, sumKcal, sumEntries, targetGrams, remaining, multiples, weightOn, foodPortion,
+  MACROS, calories, kcalOf, sumKcal, sumEntries, multiples, weightOn, foodPortion,
   fromInputWeight, toDisplayWeight, dateKey, parseDateKey, shiftDate,
+  rollingAverage, weeklyRate, averageIntake, estimateExpenditure, EXPENDITURE_NEEDS, kgPerWeekFromDeficit,
+  dailyTarget, status,
 } from './calc.js';
 import { load, save, parseBackup } from './store.js';
 import { weightChartSvg } from './chart.js';
@@ -28,6 +30,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => (
 const num = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const otherUnit = (unit) => (unit === 'lb' ? 'kg' : 'lb');
+const round50 = (n) => Math.round(n / 50) * 50;
 
 // 空 → null；不是非负数字 → NaN
 function parseNum(text) {
@@ -109,16 +112,31 @@ function weightHint() {
   return '输入体重后才能算出目标';
 }
 
-function gap(left) {
-  return left >= 0 ? { label: '还差', value: left, over: false } : { label: '超出', value: -left, over: true };
+// 蛋白质是下限（吃够就行），碳水、脂肪和总热量是上限
+const KIND = { p: 'floor', c: 'ceiling', f: 'ceiling' };
+
+// 把「吃了多少 / 目标多少」变成界面上的一句话。达标区间内不再报差几克
+function verdict(kind, eaten, target) {
+  const st = status(kind, eaten, target);
+  const diff = Math.abs(Math.round((eaten - target) * 10) / 10);
+  if (st === 'under') return { label: '还差', value: diff, over: false };
+  if (st === 'over') return { label: '超出', value: diff, over: true };
+  // 蛋白质明显吃多时说明多了多少，但不算超
+  const surplus = status('ceiling', eaten, target) === 'over';
+  return surplus ? { label: '已达标，多', value: diff, over: false } : { label: '已达标', value: null, over: false };
 }
+
+const verdictHtml = (v, unit) => (
+  v.value === null ? `<b class="is-met">${v.label}</b>` : `${v.label} <b>${num(v.value)}</b> ${unit}`
+);
 
 function rulerHtml(eatenMult, targetMult) {
   const max = Math.max(targetMult, eatenMult, 0.4) * 1.12;
   const step = max > 3.4 ? 1 : max > 1.2 ? 0.5 : 0.25;
   const pct = (v) => `${Math.min((v / max) * 100, 100).toFixed(2)}%`;
   let ticks = '';
-  for (let t = step; t < max; t += step) {
+  // 贴着右边缘的刻度文字会溢出，留一点余量
+  for (let t = step; t < max * 0.96; t += step) {
     ticks += `<i class="ruler__tick" style="left:${pct(t)}"><span>${t}×</span></i>`;
   }
   return `
@@ -129,18 +147,18 @@ function rulerHtml(eatenMult, targetMult) {
     </div>`;
 }
 
-function macroRowHtml(k, eaten, target, left, mult) {
-  const g = gap(left[k]);
+function macroRowHtml(k, eaten, target, mult, kg) {
+  const v = verdict(KIND[k], eaten[k], target[k]);
   return `
     <article class="macro macro--${k}">
       <div class="macro__head">
         <h2>${NAMES[k]}</h2>
-        <p class="macro__gap ${g.over ? 'is-over' : ''}">${g.label} <b>${num(g.value)}</b> g</p>
+        <p class="macro__gap ${v.over ? 'is-over' : ''}">${verdictHtml(v, 'g')}</p>
       </div>
-      ${rulerHtml(mult[k], state.settings.targets[k])}
+      ${rulerHtml(mult[k], target[k] / kg)}
       <div class="macro__foot">
         <span>已吃 ${num(eaten[k])} g，体重的 ${mult[k]} 倍</span>
-        <span>目标 ${num(target[k])} g</span>
+        <span>${KIND[k] === 'floor' ? '至少' : '目标'} ${num(target[k])} g</span>
       </div>
     </article>`;
 }
@@ -176,17 +194,15 @@ function summaryHtml() {
       <section class="log"><h2>吃了什么</h2>${entriesHtml(entries)}</section>`;
   }
 
-  const target = targetGrams(state.settings.targets, kg);
-  const left = remaining(target, eaten);
+  const target = dailyTarget(state.settings, kg);
   const mult = multiples(eaten, kg);
-  const targetKcal = calories(target);
-  const g = gap(targetKcal - eatenKcal);
+  const v = verdict('ceiling', eatenKcal, target.kcal);
   return `
     <section class="kcal">
-      <p class="kcal__gap ${g.over ? 'is-over' : ''}">${g.label} <b>${num(g.value)}</b> kcal</p>
-      <p class="kcal__detail">已吃 ${num(eatenKcal)}，目标 ${num(targetKcal)} kcal</p>
+      <p class="kcal__gap ${v.over ? 'is-over' : ''}">${verdictHtml(v, 'kcal')}</p>
+      <p class="kcal__detail">已吃 ${num(eatenKcal)}，目标 ${num(target.kcal)} kcal</p>
     </section>
-    <section class="macros">${MACROS.map((k) => macroRowHtml(k, eaten, target, left, mult)).join('')}</section>
+    <section class="macros">${MACROS.map((k) => macroRowHtml(k, eaten, target, mult, kg)).join('')}</section>
     <section class="log"><h2>吃了什么</h2>${entriesHtml(entries)}</section>`;
 }
 
@@ -194,16 +210,69 @@ const refreshSummary = () => { document.getElementById('summary').innerHTML = su
 
 // ---------- 趋势页 ----------
 
+const signed = (n) => `${n > 0 ? '+' : ''}${num(n)}`;
+
+function rateHtml() {
+  const { unit } = state.settings;
+  const rate = weeklyRate(state.weights, today);
+  if (!rate.ok) {
+    return `<p class="hint">最近 21 天称了 ${rate.weighIns} 次、前后跨 ${rate.spanDays} 天。至少称 4 次并跨 7 天，才能算出每周的变化速度。</p>`;
+  }
+  const loss = -rate.pctPerWeek;
+  let note;
+  if (loss > 1) note = '比常见建议的每周 0.5–1% 快。降得太快更容易掉肌肉，可以把目标热量调高一些。';
+  else if (loss >= 0.5) note = '在常见建议的每周 0.5–1% 范围内。';
+  else if (loss >= 0.25) note = '在下降，但比常见建议的每周 0.5–1% 慢。';
+  else if (loss > -0.25) note = '基本持平，说明这段时间吃的量大约等于消耗。';
+  else note = '体重在上升，说明这段时间吃的量高于消耗。';
+  return `
+    <p class="stat">每周 <b>${signed(toDisplayWeight(rate.kgPerWeek, unit))}</b> ${unit}<small>体重的 ${num(Math.abs(rate.pctPerWeek))}%</small></p>
+    <p class="hint">按最近 21 天的 ${rate.weighIns} 次称重算出。${note}</p>`;
+}
+
+function intakeHtml() {
+  const intake = averageIntake(state.entries, today);
+  if (!intake) return '<p class="hint">过去 7 天还没有饮食记录。</p>';
+  return `
+    <p class="stat">每天 <b>${num(intake.kcal)}</b> kcal<small>${intake.days} 天有记录</small></p>
+    <p class="entry__macros">${macroLine(intake)}</p>
+    <p class="hint">单独某一天的多少不重要，看一周的平均更准。不含今天。</p>`;
+}
+
+function expenditureHtml() {
+  const est = estimateExpenditure(state.weights, state.entries, today);
+  if (!est.ok) {
+    const need = EXPENDITURE_NEEDS;
+    return `
+      <p class="hint">记录够多之后，这里会用你吃的量和体重的变化，反推你每天实际消耗多少。最近 28 天的进度：</p>
+      <ul class="needs">
+        <li>称重 <b>${est.weighIns}</b> / ${need.weighIns} 次</li>
+        <li>称重前后跨 <b>${est.spanDays}</b> / ${need.spanDays} 天</li>
+        <li>饮食记录 <b>${est.loggedDays}</b> / ${need.loggedDays} 天</li>
+      </ul>`;
+  }
+  const [low, high] = [round50(est.low), round50(est.high)];
+  const { target } = latestTarget();
+  return `
+    <p class="stat">约 <b>${num(round50(est.kcal))}</b> kcal${low === high ? '' : `<small>可能在 ${num(low)}–${num(high)} 之间</small>`}</p>
+    <p class="note">${deficitNote(target)}</p>
+    <p class="hint">用最近 28 天里 ${est.loggedDays} 天的饮食记录（平均 ${num(est.avgIntake)} kcal）和 ${est.weighIns} 次称重估算。有的天没记全会让结果偏低；刚开始减脂的头一两周掉的多是水分，会让结果偏高。</p>`;
+}
+
 function trendsHtml() {
   const { unit } = state.settings;
   const from = trendRange ? shiftDate(today, -trendRange) : '';
-  const weightDays = Object.keys(state.weights).filter((k) => k >= from).sort();
-  const data = weightDays.map((k) => ({ date: k, value: toDisplayWeight(state.weights[k], unit) }));
+  const inRange = (d) => d.date >= from;
+  const raw = Object.keys(state.weights).sort()
+    .map((k) => ({ date: k, value: toDisplayWeight(state.weights[k], unit) })).filter(inRange);
+  // 平均值用全部历史算，再截取范围，这样范围开头的平均也是完整的 7 天
+  const avg = rollingAverage(state.weights)
+    .map((a) => ({ date: a.date, value: toDisplayWeight(a.kg, unit) })).filter(inRange);
 
   let change = '';
-  if (data.length >= 2) {
-    const diff = Math.round((data[data.length - 1].value - data[0].value) * 10) / 10;
-    change = `<p class="trend__change">${dayLabel(data[0].date)}至今 <b>${diff > 0 ? '+' : ''}${diff}</b> ${unit}</p>`;
+  if (avg.length >= 2) {
+    const diff = Math.round((avg[avg.length - 1].value - avg[0].value) * 10) / 10;
+    change = `<p class="trend__change">7 天平均从${dayLabel(avg[0].date)}至今 <b>${signed(diff)}</b> ${unit}</p>`;
   }
 
   const days = [...new Set([...Object.keys(state.weights), ...Object.keys(state.entries).filter((k) => state.entries[k].length)])]
@@ -216,8 +285,8 @@ function trendsHtml() {
     const own = state.weights[k];
     let versus = '';
     if (kg !== null && kcal > 0) {
-      const g = gap(calories(targetGrams(state.settings.targets, kg)) - kcal);
-      versus = `<small class="${g.over ? 'is-over' : ''}">${g.over ? '超' : '差'} ${num(g.value)}</small>`;
+      const v = verdict('ceiling', kcal, dailyTarget(state.settings, kg).kcal);
+      versus = `<small class="${v.over ? 'is-over' : ''}">${v.value === null ? '达标' : `${v.over ? '超' : '差'} ${num(v.value)}`}</small>`;
     }
     return `
       <li><button type="button" class="day" data-act="open-day" data-date="${k}">
@@ -237,7 +306,19 @@ function trendsHtml() {
     </header>
     <section class="panel trend">
       <h2>体重（${unit}）</h2>
-      ${data.length ? weightChartSvg(data, unit) + change : '<p class="empty">这段时间还没有体重记录。在「记录」页输入体重，这里会画出变化曲线。</p>'}
+      ${raw.length ? `
+        ${weightChartSvg(raw, avg, unit)}
+        <p class="legend"><span class="legend__dot"></span>每天称的<span class="legend__line"></span>7 天平均</p>
+        ${change}
+        ${rateHtml()}` : '<p class="empty">这段时间还没有体重记录。在「记录」页输入体重，这里会画出变化曲线。</p>'}
+    </section>
+    <section class="panel trend">
+      <h2>近 7 天平均摄入</h2>
+      ${intakeHtml()}
+    </section>
+    <section class="panel trend">
+      <h2>每天实际消耗（估算）</h2>
+      ${expenditureHtml()}
     </section>
     <section class="log">
       <h2>每天</h2>
@@ -265,37 +346,87 @@ function foodsHtml() {
 
 // ---------- 目标页 ----------
 
-function targetDerived(k, kg) {
-  if (kg === null) return '输入体重后显示克数';
-  const grams = targetGrams(state.settings.targets, kg)[k];
-  return `每天 ${num(grams)} g，${num(Math.round(grams * KCAL_PER_G[k]))} kcal`;
+const kcalMode = () => state.settings.mode === 'kcal' && state.settings.kcalTarget != null;
+const latestTarget = () => {
+  const kg = weightOn(state.weights, today);
+  return { kg, target: kg === null ? null : dailyTarget(state.settings, kg) };
+};
+
+function targetDerived(k, target, kg) {
+  if (target === null) return '输入体重后显示克数';
+  if (k === 'c' && kcalMode()) {
+    return `剩下的热量都给碳水：每天 ${num(target.c)} g，体重的 ${Math.round((target.c / kg) * 100) / 100} 倍`;
+  }
+  return `每天 ${num(target[k])} g，${num(Math.round(target[k] * KCAL_PER_G[k]))} kcal`;
 }
 
-function targetTotal(kg) {
-  if (kg === null) return '';
-  return `合计 <b>${num(calories(targetGrams(state.settings.targets, kg)))}</b> kcal`;
+function targetTotal(target) {
+  if (target === null || state.settings.mode === 'kcal') return '';
+  return `合计 <b>${num(target.kcal)}</b> kcal`;
+}
+
+// 目标和估算消耗相比是多大的缺口；估算不出来时返回空串
+function deficitNote(target) {
+  const est = estimateExpenditure(state.weights, state.entries, today);
+  if (!est.ok || target === null) return '';
+  const { unit } = state.settings;
+  const deficit = round50(est.kcal) - target.kcal;
+  if (deficit <= 0) return `现在的目标 ${num(target.kcal)} kcal 不低于估算的消耗，照这样吃体重不会降。`;
+  return `现在的目标 ${num(target.kcal)} kcal 相当于每天缺口约 ${num(round50(deficit))} kcal，照这样每周大约降 ${toDisplayWeight(kgPerWeekFromDeficit(deficit), unit)} ${unit}。`;
+}
+
+function targetNotes(target) {
+  const { mode, kcalTarget, targets } = state.settings;
+  const notes = [];
+  if (mode === 'kcal' && kcalTarget == null) notes.push('填入每日总热量后，碳水会自动取剩下的部分。在那之前仍按三个倍数计算。');
+  if (target?.overBudget) notes.push('<span class="is-over">蛋白质和脂肪加起来已经超过总热量，碳水被记为 0。调高总热量，或调低蛋白质、脂肪的倍数。</span>');
+  if (targets.p < 1.6) notes.push('蛋白质低于减脂期常用的 1.6–2.4 g/kg，更容易掉肌肉。');
+  if (targets.f < 0.5) notes.push('脂肪低于常见建议的下限 0.5 g/kg。');
+  const est = estimateExpenditure(state.weights, state.entries, today);
+  if (est.ok && target) notes.push(`按你最近的记录估算，每天实际消耗约 ${num(round50(est.kcal))} kcal。${deficitNote(target)}`);
+  return notes.map((n) => `<p class="hint">${n}</p>`).join('');
+}
+
+function stepperHtml(id, value, act, attrs, step, name, unit) {
+  return `
+    <div class="stepper">
+      <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="-${step}" aria-label="${name}减少 ${step}">−</button>
+      <input id="${id}" ${attrs} type="text" inputmode="decimal" autocomplete="off" value="${value ?? ''}">
+      <button type="button" class="iconbtn" data-act="${act}" ${attrs} data-delta="${step}" aria-label="${name}增加 ${step}">+</button>
+      <span>${unit}</span>
+    </div>`;
 }
 
 function settingsHtml() {
-  const { unit, targets } = state.settings;
-  const kg = weightOn(state.weights, today);
+  const { unit, targets, mode, kcalTarget } = state.settings;
+  const { kg, target } = latestTarget();
+  const basis = kg === null ? '' : `按最近的体重 ${toDisplayWeight(kg, unit)} ${unit}${unit === 'lb' ? `（${toDisplayWeight(kg, 'kg')} kg）` : ''}计算。`;
+  const intro = mode === 'kcal'
+    ? '先定每天的总热量，再定蛋白质和脂肪各吃体重的几倍，剩下的热量都给碳水。'
+    : '每公斤体重每天吃多少克，总热量是三者相加的结果。';
+  const macroRow = (k) => `
+    <div class="target macro--${k}">
+      <label ${mode === 'kcal' && k === 'c' ? '' : `for="target-${k}"`}>${NAMES[k]}</label>
+      ${mode === 'kcal' && k === 'c' ? '' : stepperHtml(`target-${k}`, targets[k], 'step', `data-macro="${k}"`, 0.1, NAMES[k], 'g/kg')}
+      <p data-derived="${k}">${targetDerived(k, target, kg)}</p>
+    </div>`;
   return `
     <header class="page__head"><h1>每日目标</h1></header>
-    <p class="lede">每公斤体重每天吃多少克。${kg === null ? '' : `按最近的体重 ${toDisplayWeight(kg, unit)} ${unit}${unit === 'lb' ? `（${toDisplayWeight(kg, 'kg')} kg）` : ''}计算。`}</p>
+    <div class="seg seg--wide" role="group" aria-label="目标的设法">
+      <button type="button" data-act="set-mode" data-mode="multiples" aria-pressed="${mode !== 'kcal'}">三个倍数</button>
+      <button type="button" data-act="set-mode" data-mode="kcal" aria-pressed="${mode === 'kcal'}">定总热量</button>
+    </div>
+    <p class="lede lede--after-seg">${intro}${basis}</p>
     <section class="panel targets">
-      ${MACROS.map((k) => `
-        <div class="target macro--${k}">
-          <label for="target-${k}">${NAMES[k]}</label>
-          <div class="stepper">
-            <button type="button" class="iconbtn" data-act="step" data-macro="${k}" data-delta="-0.1" aria-label="${NAMES[k]}减少 0.1">−</button>
-            <input id="target-${k}" data-macro="${k}" type="text" inputmode="decimal" autocomplete="off" value="${targets[k]}">
-            <button type="button" class="iconbtn" data-act="step" data-macro="${k}" data-delta="0.1" aria-label="${NAMES[k]}增加 0.1">+</button>
-            <span>g/kg</span>
-          </div>
-          <p data-derived="${k}">${targetDerived(k, kg)}</p>
-        </div>`).join('')}
-      <p class="targets__total" id="target-total">${targetTotal(kg)}</p>
+      ${mode === 'kcal' ? `
+        <div class="target target--kcal">
+          <label for="target-kcal">每日总热量</label>
+          ${stepperHtml('target-kcal', kcalTarget, 'step-kcal', '', 50, '每日总热量', 'kcal')}
+        </div>` : ''}
+      ${(mode === 'kcal' ? ['p', 'f', 'c'] : MACROS).map(macroRow).join('')}
+      <p class="targets__total" id="target-total">${targetTotal(target)}</p>
     </section>
+    <div class="notes" id="target-notes">${targetNotes(target)}</div>
 
     <section class="backup">
       <h2>备份</h2>
@@ -309,11 +440,12 @@ function settingsHtml() {
 }
 
 function refreshTargetDerived() {
-  const kg = weightOn(state.weights, today);
+  const { kg, target } = latestTarget();
   for (const k of MACROS) {
-    document.querySelector(`[data-derived="${k}"]`).textContent = targetDerived(k, kg);
+    document.querySelector(`[data-derived="${k}"]`).textContent = targetDerived(k, target, kg);
   }
-  document.getElementById('target-total').innerHTML = targetTotal(kg);
+  document.getElementById('target-total').innerHTML = targetTotal(target);
+  document.getElementById('target-notes').innerHTML = targetNotes(target);
 }
 
 // ---------- 渲染 ----------
@@ -599,6 +731,25 @@ const actions = {
     refreshTargetDerived();
   },
 
+  'step-kcal': (el) => {
+    const base = state.settings.kcalTarget ?? latestTarget().target?.kcal;
+    if (base == null) return;
+    state.settings.kcalTarget = Math.max(0, base + Number(el.dataset.delta));
+    document.getElementById('target-kcal').value = state.settings.kcalTarget;
+    persist();
+    refreshTargetDerived();
+  },
+  'set-mode': (el) => {
+    const { settings } = state;
+    // 首次切到定总热量时沿用三倍数算出的合计，目标不会突变
+    if (el.dataset.mode === 'kcal' && settings.kcalTarget == null) {
+      settings.kcalTarget = latestTarget().target?.kcal ?? null;
+    }
+    settings.mode = el.dataset.mode;
+    persist();
+    render();
+  },
+
   export: exportBackup,
   import: () => document.getElementById('import-file').click(),
 };
@@ -626,6 +777,13 @@ $view.addEventListener('input', (event) => {
     persist();
     document.getElementById('weight-hint').textContent = weightHint();
     refreshSummary();
+  } else if (el.id === 'target-kcal') {
+    const n = parseNum(el.value);
+    el.classList.toggle('is-invalid', Number.isNaN(n));
+    if (Number.isNaN(n)) return;
+    state.settings.kcalTarget = n;
+    persist();
+    refreshTargetDerived();
   } else if (el.id?.startsWith('target-')) {
     const n = parseNum(el.value);
     el.classList.toggle('is-invalid', n === null || Number.isNaN(n));

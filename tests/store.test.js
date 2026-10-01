@@ -81,3 +81,20 @@ test('导入的卡路里不是数字时拒绝', () => {
   bad.entries['2026-10-01'] = [{ id: 'a', name: '蛋白棒', p: 28, c: 12, f: 2, kcal: '很多' }];
   assert.throws(() => parseBackup(JSON.stringify(bad)), /不是有效的备份文件/);
 });
+
+test('旧存档没有目标模式时默认用三倍数', () => {
+  const old = { settings: { unit: 'kg', targets: { p: 2.2, c: 1.5, f: 0.7 } }, weights: {}, entries: {}, foods: [] };
+  const state = load(fakeStorage({ [STORAGE_KEY]: JSON.stringify(old) }));
+  assert.equal(state.settings.mode, 'multiples');
+  assert.equal(state.settings.kcalTarget, null);
+  assert.equal(state.settings.targets.p, 2.2);
+});
+
+test('定总热量模式能随备份保存和恢复', () => {
+  const backup = defaultState();
+  backup.settings.mode = 'kcal';
+  backup.settings.kcalTarget = 1800;
+  const state = parseBackup(JSON.stringify(backup));
+  assert.equal(state.settings.mode, 'kcal');
+  assert.equal(state.settings.kcalTarget, 1800);
+});
