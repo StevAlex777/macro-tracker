@@ -397,6 +397,7 @@ input.is-invalid { color: var(--over); }
 .field input[inputmode="decimal"] { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .field input:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
 .field-row { display: flex; gap: 10px; }
+.hint--field { font-size: 13px; margin-top: -8px; }
 
 .foodpick { display: flex; flex-wrap: wrap; gap: 8px; max-height: 34dvh; overflow-y: auto; }
 .foodpick button {

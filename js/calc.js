@@ -20,7 +20,12 @@ export const toDisplayWeight = (kg, unit) => round(unit === 'lb' ? kgToLb(kg) : 
 
 export const calories = (m) => round(m.p * KCAL.p + m.c * KCAL.c + m.f * KCAL.f, 0);
 
-export const sumEntries = (entries = []) =>
+// 含膳食纤维、糖醇的食物按 4/4/9 会算高，所以包装上的卡路里（kcal）填了就优先用
+export const kcalOf = (item) => (typeof item.kcal === 'number' ? item.kcal : calories(item));
+
+export const sumKcal = (entries = []) => round(entries.reduce((sum, e) => sum + kcalOf(e), 0), 0);
+
+export const sumEntries =(entries = []) =>
   mapMacros((k) => round(entries.reduce((sum, e) => sum + e[k], 0)));
 
 export const targetGrams = (targets, kg) => mapMacros((k) => round(targets[k] * kg));
@@ -41,7 +46,9 @@ export function weightOn(weights, date) {
 // amount：basis 为 100g 时是克数，为 serving 时是份数
 export function foodPortion(food, amount) {
   const factor = food.basis === '100g' ? amount / 100 : amount;
-  return mapMacros((k) => round(food[k] * factor));
+  const portion = mapMacros((k) => round(food[k] * factor));
+  if (typeof food.kcal === 'number') portion.kcal = round(food.kcal * factor, 0);
+  return portion;
 }
 
 const pad = (n) => String(n).padStart(2, '0');

@@ -13,7 +13,7 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const isAmount = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const isDateKey = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k);
 const hasMacros = (v) => isObject(v) && isAmount(v.p) && isAmount(v.c) && isAmount(v.f);
-const isEntry = (v) => hasMacros(v) && typeof v.name === 'string';
+const isEntry = (v) => hasMacros(v) && typeof v.name === 'string' && (v.kcal === undefined || isAmount(v.kcal));
 const isFood = (v) => isEntry(v) && (v.basis === '100g' || v.basis === 'serving');
 
 // 缺的字段用默认值补齐，这样旧版本存档也能读

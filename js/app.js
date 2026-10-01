@@ -1,5 +1,5 @@
 import {
-  MACROS, calories, sumEntries, targetGrams, remaining, multiples, weightOn, foodPortion,
+  MACROS, calories, kcalOf, sumKcal, sumEntries, targetGrams, remaining, multiples, weightOn, foodPortion,
   fromInputWeight, toDisplayWeight, dateKey, parseDateKey, shiftDate,
 } from './calc.js';
 import { load, save, parseBackup } from './store.js';
@@ -153,7 +153,7 @@ function entriesHtml(entries) {
     <li>
       <button type="button" class="entry" data-act="edit-entry" data-id="${esc(e.id)}">
         <span class="entry__name">${esc(e.name)}${e.qty ? `<small>${esc(e.qty)}</small>` : ''}</span>
-        <span class="entry__kcal">${num(calories(e))} kcal</span>
+        <span class="entry__kcal">${num(kcalOf(e))} kcal</span>
         <span class="entry__macros">${macroLine(e)}</span>
       </button>
       <button type="button" class="iconbtn iconbtn--quiet" data-act="delete-entry" data-id="${esc(e.id)}" aria-label="删除 ${esc(e.name)}">×</button>
@@ -163,7 +163,7 @@ function entriesHtml(entries) {
 function summaryHtml() {
   const entries = state.entries[date] ?? [];
   const eaten = sumEntries(entries);
-  const eatenKcal = calories(eaten);
+  const eatenKcal = sumKcal(entries);
   const kg = weightOn(state.weights, date);
 
   if (kg === null) {
@@ -211,7 +211,7 @@ function trendsHtml() {
 
   const rows = days.map((k) => {
     const eaten = sumEntries(state.entries[k]);
-    const kcal = calories(eaten);
+    const kcal = sumKcal(state.entries[k]);
     const kg = weightOn(state.weights, k);
     const own = state.weights[k];
     let versus = '';
@@ -253,7 +253,7 @@ function foodsHtml() {
   const list = state.foods.map((f) => `
     <li><button type="button" class="entry" data-act="edit-food" data-id="${esc(f.id)}">
       <span class="entry__name">${esc(f.name)}<small>${basisLabel(f.basis)}</small></span>
-      <span class="entry__kcal">${num(calories(f))} kcal</span>
+      <span class="entry__kcal">${num(kcalOf(f))} kcal</span>
       <span class="entry__macros">${macroLine(f)}</span>
     </button></li>`).join('');
   return `
@@ -339,7 +339,9 @@ const field = (id, label, value = '', attrs = 'inputmode="decimal"') => `
 const macroFields = (m = {}) => `
   <div class="field-row">
     ${MACROS.map((k) => field(`f-${k}`, `${NAMES[k]} (g)`, m[k] ?? '')).join('')}
-  </div>`;
+  </div>
+  ${field('f-kcal', '卡路里（选填）', m.kcal ?? '')}
+  <p class="hint hint--field">不填就按蛋白质 4、碳水 4、脂肪 9 自动算。含膳食纤维或糖醇的食物会算高，照包装上的数字填更准。</p>`;
 
 function entrySheetHtml() {
   const { tab, foodId, editId } = sheetState;
@@ -422,8 +424,13 @@ function openSheet(next) {
 function readMacros() {
   const m = {};
   for (const k of MACROS) m[k] = parseNum(document.getElementById(`f-${k}`).value) ?? 0;
+  // 卡路里没填时不带 kcal 字段，交给 4/4/9 自动算
+  const kcal = parseNum(document.getElementById('f-kcal').value);
+  if (kcal !== null) m.kcal = kcal;
   return m;
 }
+
+const hasBadNumber = (m) => Object.values(m).some(Number.isNaN);
 
 // 当前面板里将要记下的营养素；填得不完整时返回 null
 function draftMacros() {
@@ -433,14 +440,16 @@ function draftMacros() {
     return food && amount ? foodPortion(food, amount) : null;
   }
   const m = readMacros();
-  return MACROS.some((k) => Number.isNaN(m[k])) ? null : m;
+  return hasBadNumber(m) ? null : m;
 }
 
 function refreshPreview() {
   const $preview = document.getElementById('preview');
   if (!$preview) return;
   const m = draftMacros();
-  $preview.innerHTML = m ? `<b>${num(calories(m))} kcal</b>${macroLine(m)}` : '';
+  const $kcal = document.getElementById('f-kcal');
+  if ($kcal) $kcal.placeholder = m ? `自动算是 ${num(calories(m))}` : '';
+  $preview.innerHTML = m ? `<b>${num(kcalOf(m))} kcal</b>${macroLine(m)}` : '';
 }
 
 function formError(message) {
@@ -463,13 +472,14 @@ function submitEntry() {
     });
   } else {
     const m = readMacros();
-    if (MACROS.some((k) => Number.isNaN(m[k]))) return formError('营养素只能填数字，比如 23.5。');
+    if (hasBadNumber(m)) return formError('营养素和卡路里只能填数字，比如 23.5。');
     if (MACROS.every((k) => m[k] === 0)) return formError('至少填一种营养素的克数。');
     const name = document.getElementById('f-name').value.trim() || '未命名食物';
     const editing = list.find((e) => e.id === sheetState.editId);
     if (editing) {
-      // 手动改过数值后，原来的「200 g」已不可信
+      // 手动改过数值后，原来的「200 g」已不可信；卡路里清空则回到自动算
       delete editing.qty;
+      delete editing.kcal;
       Object.assign(editing, { name, ...m });
     } else {
       list.push({ id: uid(), name, ...m });
@@ -487,11 +497,14 @@ function submitFood() {
   const name = document.getElementById('f-name').value.trim();
   const m = readMacros();
   if (!name) return formError('给这个食物起个名字。');
-  if (MACROS.some((k) => Number.isNaN(m[k]))) return formError('营养素只能填数字，比如 23.5。');
+  if (hasBadNumber(m)) return formError('营养素和卡路里只能填数字，比如 23.5。');
   if (MACROS.every((k) => m[k] === 0)) return formError('至少填一种营养素的克数。');
   const basis = document.querySelector('input[name="basis"]:checked').value;
   const editing = state.foods.find((f) => f.id === sheetState.editId);
-  if (editing) Object.assign(editing, { name, basis, ...m });
+  if (editing) {
+    delete editing.kcal;
+    Object.assign(editing, { name, basis, ...m });
+  }
   else state.foods.push({ id: uid(), name, basis, ...m });
   persist();
   $sheet.close();

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   lbToKg, kgToLb, toDisplayWeight, fromInputWeight, calories, sumEntries,
-  targetGrams, remaining, multiples, weightOn, foodPortion, dateKey, shiftDate,
+  targetGrams, remaining, multiples, weightOn, foodPortion, dateKey, shiftDate, kcalOf, sumKcal,
 } from '../js/calc.js';
 
 test('165 lb 换算成约 74.84 kg', () => {
@@ -91,4 +91,23 @@ test('日期键使用本地时区而不是 UTC', () => {
 test('日期前后移动会跨月', () => {
   assert.equal(shiftDate('2026-10-01', -1), '2026-09-30');
   assert.equal(shiftDate('2026-12-31', 1), '2027-01-01');
+});
+
+test('填了包装上的卡路里就用包装的，不按 4/4/9 算', () => {
+  // 含 2g 纤维和 7g 糖醇的蛋白棒：4/4/9 会算出 178，包装写 150
+  assert.equal(kcalOf({ p: 28, c: 12, f: 2, kcal: 150 }), 150);
+});
+
+test('没填卡路里时按 4/4/9 算', () => {
+  assert.equal(kcalOf({ p: 28, c: 12, f: 2 }), 178);
+});
+
+test('一天的总卡路里混合使用包装值和自动计算值', () => {
+  assert.equal(sumKcal([{ p: 28, c: 12, f: 2, kcal: 150 }, { p: 46, c: 0, f: 5 }]), 379);
+  assert.equal(sumKcal(undefined), 0);
+});
+
+test('食物库里填了卡路里的食物按份量一起折算', () => {
+  const bar = { basis: 'serving', p: 28, c: 12, f: 2, kcal: 150 };
+  assert.deepEqual(foodPortion(bar, 0.5), { p: 14, c: 6, f: 1, kcal: 75 });
 });
