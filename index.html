@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>营养素记录</title>
+  <meta name="description" content="记录每天的蛋白质、碳水、脂肪和体重，按体重倍数计算还差多少。">
+  <meta name="theme-color" content="#E9EEF0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17252D" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="营养素">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="view"></main>
+
+  <nav class="tabs" aria-label="页面">
+    <button type="button" data-view="today" aria-current="page">记录</button>
+    <button type="button" data-view="trends">趋势</button>
+    <button type="button" data-view="foods">食物库</button>
+    <button type="button" data-view="settings">目标</button>
+  </nav>
+
+  <dialog id="sheet" class="sheet"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <noscript>这个页面需要开启 JavaScript 才能使用。</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

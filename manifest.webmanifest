@@ -1,0 +1,17 @@
+{
+  "name": "营养素记录",
+  "short_name": "营养素",
+  "description": "记录每天的蛋白质、碳水、脂肪和体重，按体重倍数计算还差多少。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9EEF0",
+  "theme_color": "#E9EEF0",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
